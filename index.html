@@ -1,0 +1,1835 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="h-full bg-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>智慧餐飲 POS 與點餐系統</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- QR Code Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Chart.js for Reports -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0fdf4',
+                            100: '#dcfce7',
+                            600: '#16a34a',
+                            800: '#166534',
+                            900: '#14532d', // Deep Green matching original menu
+                            dark: '#0f381e'
+                        },
+                        accent: {
+                            500: '#ef4444',
+                            600: '#dc2626', // Red accents from price tag
+                            700: '#b91c1c'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Touch scrollbar custom styling */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        .touch-callout-none {
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        /* Print Styles for thermal paper 80mm */
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            #thermal-receipt-print, #thermal-receipt-print * {
+                visibility: visible;
+            }
+            #thermal-receipt-print {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 80mm;
+                padding: 10px;
+                background: white;
+                color: black;
+                font-family: monospace;
+            }
+        }
+    </style>
+</head>
+<body class="h-full font-sans antialiased text-slate-800 touch-callout-none select-none flex flex-col overflow-hidden">
+
+    <!-- Top Navigation Bar -->
+    <header class="bg-brand-900 text-white h-16 flex items-center justify-between px-4 shadow-md z-20 flex-shrink-0">
+        <div class="flex items-center space-x-3">
+            <div class="bg-emerald-600 p-2 rounded-lg text-white font-bold text-xl flex items-center justify-center w-10 h-10 shadow">
+                <i class="fa-solid fa-utensils"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg leading-tight tracking-wide">廣記鱔魚麵 · 平板 POS 系統</h1>
+                <p class="text-xs text-emerald-200">外帶 QR / 出單機 / 日月結帳系統</p>
+            </div>
+        </div>
+
+        <!-- System Controls & Navigation -->
+        <div class="flex items-center space-x-2">
+            <button onclick="switchTab('pos')" id="nav-pos" class="px-4 py-2 rounded-lg font-medium text-sm transition flex items-center gap-2 bg-emerald-700 text-white shadow">
+                <i class="fa-solid fa-cash-register"></i> 櫃台點餐
+            </button>
+            <button onclick="switchTab('orders')" id="nav-orders" class="px-4 py-2 rounded-lg font-medium text-sm transition flex items-center gap-2 bg-brand-800 hover:bg-emerald-700 text-emerald-100">
+                <i class="fa-solid fa-clock-rotate-left"></i> 訂單管理
+            </button>
+            <button onclick="openCustomerQrModal()" class="px-3 py-2 rounded-lg font-medium text-sm transition flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white shadow">
+                <i class="fa-solid fa-qrcode"></i> 外帶 QR 碼
+            </button>
+            <button onclick="switchTab('manage')" id="nav-manage" class="px-4 py-2 rounded-lg font-medium text-sm transition flex items-center gap-2 bg-brand-800 hover:bg-emerald-700 text-emerald-100">
+                <i class="fa-solid fa-pen-to-square"></i> 菜單與價格
+            </button>
+            <button onclick="switchTab('reports')" id="nav-reports" class="px-4 py-2 rounded-lg font-medium text-sm transition flex items-center gap-2 bg-brand-800 hover:bg-emerald-700 text-emerald-100">
+                <i class="fa-solid fa-chart-line"></i> 結帳報表
+            </button>
+            <button onclick="openPrinterSettingsModal()" class="p-2 rounded-lg bg-brand-800 hover:bg-emerald-700 text-emerald-100 text-base" title="出單機設定">
+                <i class="fa-solid fa-print"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN POS CONTAINER -->
+    <main id="tab-pos" class="flex-1 flex overflow-hidden">
+        <!-- Left: Categories & Menu Grid -->
+        <div class="flex-1 flex flex-col bg-slate-100 border-r border-slate-200 overflow-hidden">
+            <!-- Category Selector Tabs -->
+            <div class="bg-white px-4 py-3 border-b border-slate-200 flex gap-2 overflow-x-auto flex-shrink-0 shadow-sm" id="category-tabs">
+                <!-- Tabs rendered by JS -->
+            </div>
+
+            <!-- Items Grid -->
+            <div class="flex-1 overflow-y-auto p-4">
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3" id="menu-items-grid">
+                    <!-- Menu Cards generated dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Order Cart & Checkout -->
+        <div class="w-96 bg-white flex flex-col shadow-xl flex-shrink-0 z-10 border-l border-slate-200">
+            <!-- Order Header -->
+            <div class="p-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <span class="font-bold text-slate-700 text-base"><i class="fa-solid fa-receipt text-brand-800 mr-1"></i> <span id="cart-mode-title">當前訂單</span></span>
+                    <span id="order-id-badge" class="bg-slate-200 text-slate-700 text-xs px-2 py-0.5 rounded font-mono">#001</span>
+                </div>
+                <!-- Dining Option Toggle -->
+                <div class="inline-flex p-1 bg-slate-200 rounded-lg text-xs font-semibold">
+                    <button id="type-dinein" onclick="setOrderType('dinein')" class="px-3 py-1 rounded-md transition bg-brand-900 text-white shadow">內用</button>
+                    <button id="type-takeout" onclick="setOrderType('takeout')" class="px-3 py-1 rounded-md transition text-slate-600 hover:text-slate-900">外帶</button>
+                </div>
+            </div>
+
+            <!-- Table or Customer Note Input -->
+            <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 flex gap-2 text-sm">
+                <input type="text" id="order-note" placeholder="桌號 / 顧客備註 (例: 桌號A2)" class="w-full px-3 py-1.5 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-800 text-sm">
+            </div>
+
+            <!-- Editing Banner Notification (hidden by default) -->
+            <div id="editing-banner" class="hidden px-3 py-1.5 bg-amber-100 border-b border-amber-200 text-amber-800 text-xs flex justify-between items-center font-semibold">
+                <span><i class="fa-solid fa-pen-to-square mr-1"></i> 正修改訂單 <b id="editing-order-no">#000</b></span>
+                <button onclick="cancelEditingOrder()" class="text-rose-600 hover:underline">取消修改</button>
+            </div>
+
+            <!-- Cart Items List -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-2 divide-y divide-slate-100" id="cart-items-container">
+                <!-- Cart items rendered by JS -->
+            </div>
+
+            <!-- Cart Footer Summary & Checkout -->
+            <div class="p-4 bg-slate-50 border-t border-slate-200 space-y-3">
+                <div class="space-y-1 text-sm">
+                    <div class="flex justify-between text-slate-500">
+                        <span>小計數量</span>
+                        <span id="cart-total-qty" class="font-semibold text-slate-700">0 件</span>
+                    </div>
+                    <div class="flex justify-between text-lg font-bold text-slate-900 pt-1 border-t border-slate-200">
+                        <span>應收金額</span>
+                        <span class="text-accent-600 text-xl" id="cart-total-price">NT$ 0</span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 pt-1">
+                    <button onclick="clearCart()" class="py-2.5 px-3 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 font-semibold text-sm transition">
+                        <i class="fa-solid fa-trash-can mr-1"></i> 清空
+                    </button>
+                    <button onclick="processCheckout()" id="btn-checkout" class="py-2.5 px-3 rounded-lg bg-accent-600 hover:bg-accent-700 text-white font-bold text-base shadow-md transition flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-print"></i> 結帳並出單
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ORDERS TAB: Completed Orders Management -->
+    <section id="tab-orders" class="flex-1 bg-slate-50 p-6 overflow-y-auto hidden">
+        <div class="max-w-6xl mx-auto space-y-6">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex justify-between items-center">
+                <div>
+                    <h2 class="text-xl font-bold text-slate-800">已完成訂單列表與修改</h2>
+                    <p class="text-sm text-slate-500">檢視今日已有單據，如需補點、退項或列印可直接在此調整。</p>
+                </div>
+                <div class="text-sm font-bold text-slate-600">
+                    共 <span id="orders-count-badge" class="text-emerald-700 font-black text-lg">0</span> 筆訂單
+                </div>
+            </div>
+
+            <!-- Orders List -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                            <tr>
+                                <th class="p-3">單號</th>
+                                <th class="p-3">時間</th>
+                                <th class="p-3">類型/備註</th>
+                                <th class="p-3">訂購品項內容</th>
+                                <th class="p-3 text-right">金額</th>
+                                <th class="p-3 text-center">操作動作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orders-list-rows" class="divide-y divide-slate-100">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- MANAGE TAB: Edit Menu & Prices -->
+    <section id="tab-manage" class="flex-1 bg-slate-50 p-6 overflow-y-auto hidden">
+        <div class="max-w-5xl mx-auto space-y-6">
+            <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                <div>
+                    <h2 class="text-xl font-bold text-slate-800">菜單與價格管理</h2>
+                    <p class="text-sm text-slate-500">直接修改品項名稱、價格或停售/上架，變更將同步至 POS 及 QR 點餐。</p>
+                </div>
+                <button onclick="openAddItemModal()" class="px-4 py-2 bg-brand-800 hover:bg-brand-900 text-white rounded-lg font-medium text-sm flex items-center gap-2 shadow">
+                    <i class="fa-solid fa-plus"></i> 新增菜色
+                </button>
+            </div>
+
+            <!-- Categories Accordion / Table -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="p-4 bg-slate-100 border-b border-slate-200 flex justify-between items-center font-bold text-slate-700">
+                    <span>菜單列表 (共 <span id="manage-total-count">0</span> 項)</span>
+                    <button onclick="resetMenuToDefault()" class="text-xs text-rose-600 hover:underline">恢復預設菜單</button>
+                </div>
+
+                <div class="divide-y divide-slate-200" id="manage-items-list">
+                    <!-- Manage item rows dynamically inserted -->
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- REPORTS TAB: Daily / Monthly Settlement -->
+    <section id="tab-reports" class="flex-1 bg-slate-50 p-6 overflow-y-auto hidden">
+        <div class="max-w-6xl mx-auto space-y-6">
+            <!-- Header & Actions -->
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200 gap-4">
+                <div>
+                    <h2 class="text-xl font-bold text-slate-800">營運與結帳報表</h2>
+                    <p class="text-sm text-slate-500">查看今日即時銷售、匯出 Excel 報表、備份系統資料與執行日結帳歸零。</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="exportSalesDetailCSV()" class="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-bold text-sm shadow flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-excel"></i> 匯出明細 (CSV)
+                    </button>
+                    <button onclick="exportItemsCSV()" class="px-3.5 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-lg font-bold text-sm shadow flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-csv"></i> 匯出品項統計
+                    </button>
+                    <button onclick="exportFullBackupJSON()" class="px-3.5 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg font-bold text-sm shadow flex items-center gap-1.5" title="下載備份檔以備更換平板時還原">
+                        <i class="fa-solid fa-download"></i> 完整系統備份
+                    </button>
+                    <button onclick="document.getElementById('restore-json-input').click()" class="px-3.5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-bold text-sm shadow flex items-center gap-1.5" title="上傳備份檔還原資料">
+                        <i class="fa-solid fa-upload"></i> 還原備份
+                    </button>
+                    <input type="file" id="restore-json-input" accept=".json" class="hidden" onchange="importFullBackupJSON(event)">
+
+                    <button onclick="triggerDailySettlement()" class="px-4 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-lg font-bold text-sm shadow flex items-center gap-1.5">
+                        <i class="fa-solid fa-calendar-check"></i> 執行今日日結帳
+                    </button>
+                </div>
+            </div>
+
+            <!-- KPI Summary Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
+                    <div class="p-3 bg-emerald-100 text-emerald-800 rounded-lg text-xl"><i class="fa-solid fa-dollar-sign"></i></div>
+                    <div>
+                        <div class="text-xs text-slate-500 font-medium">今日營業額</div>
+                        <div class="text-2xl font-black text-slate-800" id="report-today-sales">NT$ 0</div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
+                    <div class="p-3 bg-blue-100 text-blue-800 rounded-lg text-xl"><i class="fa-solid fa-receipt"></i></div>
+                    <div>
+                        <div class="text-xs text-slate-500 font-medium">今日總單數</div>
+                        <div class="text-2xl font-black text-slate-800" id="report-today-orders">0 單</div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
+                    <div class="p-3 bg-amber-100 text-amber-800 rounded-lg text-xl"><i class="fa-solid fa-chart-pie"></i></div>
+                    <div>
+                        <div class="text-xs text-slate-500 font-medium">平均單筆消費</div>
+                        <div class="text-2xl font-black text-slate-800" id="report-avg-order">NT$ 0</div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4">
+                    <div class="p-3 bg-purple-100 text-purple-800 rounded-lg text-xl"><i class="fa-solid fa-fire"></i></div>
+                    <div>
+                        <div class="text-xs text-slate-500 font-medium">熱銷排行榜首</div>
+                        <div class="text-lg font-bold text-slate-800 truncate max-w-[140px]" id="report-top-item">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts & Detailed Tables Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Sales by Item Table -->
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-col">
+                    <h3 class="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-list-ol text-emerald-700"></i> 今日品項銷售統計
+                    </h3>
+                    <div class="flex-1 overflow-y-auto max-h-80 border rounded-lg border-slate-100">
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-slate-50 text-slate-600 font-semibold sticky top-0">
+                                <tr>
+                                    <th class="p-2.5">品項名稱</th>
+                                    <th class="p-2.5 text-center">售出數量</th>
+                                    <th class="p-2.5 text-right">銷售小計</th>
+                                </tr>
+                            </thead>
+                            <tbody id="report-item-breakdown" class="divide-y divide-slate-100">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Monthly Revenue Chart -->
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                    <h3 class="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-chart-column text-emerald-700"></i> 本月每日營收趨勢 (月結帳視角)
+                    </h3>
+                    <div class="h-72">
+                        <canvas id="monthlyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Past Settlement History -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="font-bold text-slate-800 flex items-center gap-2">
+                        <i class="fa-solid fa-clock-rotate-left text-slate-600"></i> 歷史日結紀錄 (點擊可展開查看品項分類總和)
+                    </h3>
+                    <button onclick="exportSettlementHistoryCSV()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1 rounded flex items-center gap-1">
+                        <i class="fa-solid fa-file-csv"></i> 匯出歷史日結 (CSV)
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-slate-50 text-slate-600 font-semibold">
+                            <tr>
+                                <th class="p-2.5">結帳日期/時間</th>
+                                <th class="p-2.5 text-center">總單數</th>
+                                <th class="p-2.5 text-right">當日總營業額</th>
+                                <th class="p-2.5 text-center">操作員</th>
+                                <th class="p-2.5 text-center">操作動作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="settlement-history-rows" class="divide-y divide-slate-100">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- MODAL 1: Sub-Option & Spiciness Selector for Items -->
+    <div id="option-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-fade-in space-y-5">
+            <div class="flex justify-between items-start border-b border-slate-100 pb-3">
+                <div>
+                    <h3 class="text-xl font-bold text-slate-800" id="modal-item-name">品項名稱</h3>
+                    <span class="text-accent-600 font-bold text-lg" id="modal-item-price">NT$ 0</span>
+                </div>
+                <button onclick="closeOptionModal()" class="text-slate-400 hover:text-slate-600 text-xl"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Dynamic Main Type Options (e.g., 燴麵, 燴飯, 燴米粉) -->
+            <div id="sub-type-section" class="space-y-2 hidden">
+                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">選擇主食種類 (必選)</label>
+                <div class="grid grid-cols-3 gap-2" id="sub-type-options">
+                    <!-- Buttons inserted dynamically -->
+                </div>
+            </div>
+
+            <!-- Spiciness Selector -->
+            <div class="space-y-2" id="spice-container-section">
+                <label class="text-xs font-bold text-rose-600 uppercase tracking-wider flex items-center gap-1">
+                    <i class="fa-solid fa-pepper-hot"></i> 辣度選擇
+                </label>
+                <div class="grid grid-cols-4 gap-2" id="spice-options">
+                    <button type="button" onclick="selectSpice('不辣')" class="spice-btn py-2 px-1 border-2 border-slate-200 rounded-lg text-sm font-semibold text-center hover:border-brand-800 active text-slate-700">不辣</button>
+                    <button type="button" onclick="selectSpice('小辣')" class="spice-btn py-2 px-1 border-2 border-slate-200 rounded-lg text-sm font-semibold text-center hover:border-brand-800 text-slate-700">小辣</button>
+                    <button type="button" onclick="selectSpice('中辣')" class="spice-btn py-2 px-1 border-2 border-slate-200 rounded-lg text-sm font-semibold text-center hover:border-brand-800 text-slate-700">中辣</button>
+                    <button type="button" onclick="selectSpice('大辣')" class="spice-btn py-2 px-1 border-2 border-slate-200 rounded-lg text-sm font-semibold text-center hover:border-brand-800 text-slate-700">大辣</button>
+                </div>
+            </div>
+
+            <!-- Quantity Selector -->
+            <div class="flex items-center justify-between pt-2">
+                <span class="font-bold text-slate-700 text-sm">數量</span>
+                <div class="flex items-center space-x-3 bg-slate-100 p-1.5 rounded-lg">
+                    <button onclick="adjustModalQty(-1)" class="w-8 h-8 rounded-md bg-white shadow text-slate-700 font-bold text-lg hover:bg-slate-50 flex items-center justify-center">-</button>
+                    <span id="modal-item-qty" class="font-bold text-base w-6 text-center">1</span>
+                    <button onclick="adjustModalQty(1)" class="w-8 h-8 rounded-md bg-white shadow text-slate-700 font-bold text-lg hover:bg-slate-50 flex items-center justify-center">+</button>
+                </div>
+            </div>
+
+            <!-- Confirm Button -->
+            <button onclick="confirmAddToCart()" class="w-full py-3 bg-brand-900 hover:bg-brand-800 text-white rounded-xl font-bold text-base shadow-lg transition">
+                加入點餐單
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL 2: Customer QR Code Ordering Modal -->
+    <div id="qr-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-qrcode text-amber-600"></i> 外帶 QR 碼顧客掃碼點餐模式
+                </h3>
+                <button onclick="closeCustomerQrModal()" class="text-slate-400 hover:text-slate-600 text-xl"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                <div class="flex flex-col items-center justify-center p-4 bg-amber-50 rounded-xl border border-amber-200">
+                    <div id="qrcode-container" class="p-3 bg-white rounded-lg shadow-md mb-3"></div>
+                    <p class="text-xs text-amber-800 text-center font-medium">出示給手機顧客掃描即可點餐</p>
+                </div>
+
+                <div class="space-y-3">
+                    <h4 class="font-bold text-slate-800 text-sm">顧客端掃碼體驗模擬：</h4>
+                    <p class="text-xs text-slate-600 leading-relaxed">
+                        在實體店面中，顧客掃描上方 QR Code 即可使用手機開啟專屬菜單進行外帶點餐。點餐完成後系統將自動傳送至此 POS 櫃台。
+                    </p>
+                    <button onclick="openSimulatedCustomerView()" class="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-sm shadow transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-mobile-screen"></i> 模擬開啟顧客手機點餐頁面
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 3: Simulated Customer Phone View Modal (Supports Full Menu) -->
+    <div id="customer-phone-modal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-2 hidden">
+        <div class="bg-slate-900 rounded-[36px] p-3 shadow-2xl border-4 border-slate-700 w-full max-w-md h-[720px] flex flex-col relative overflow-hidden">
+            <!-- Simulated Phone Header -->
+            <div class="bg-brand-900 text-white p-3 pt-6 rounded-t-[28px] flex justify-between items-center text-xs font-bold flex-shrink-0">
+                <span><i class="fa-solid fa-utensils mr-1"></i> 廣記鱔魚麵 · 線上外帶點餐</span>
+                <button onclick="closeCustomerPhoneModal()" class="text-slate-300 hover:text-white text-base"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Customer Phone Category Navigation Tabs -->
+            <div class="bg-slate-800 px-3 py-2 flex gap-1.5 overflow-x-auto flex-shrink-0 text-xs" id="customer-category-tabs">
+                <!-- Rendered dynamically -->
+            </div>
+
+            <!-- Simulated Menu Area -->
+            <div class="flex-1 bg-slate-100 overflow-y-auto p-3 space-y-2 text-slate-800" id="customer-menu-list">
+                <!-- Menu list rendered for customer preview -->
+            </div>
+
+            <!-- Phone Cart Bottom Bar -->
+            <div class="bg-white p-3 border-t rounded-b-[28px] flex justify-between items-center shadow-lg flex-shrink-0">
+                <div>
+                    <div class="text-[10px] text-slate-500 font-semibold" id="customer-cart-summary-text">已選 0 件品項</div>
+                    <div class="font-black text-rose-600 text-base" id="customer-cart-total">NT$ 0</div>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="viewCustomerCartModal()" class="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-bold">
+                        檢視清單
+                    </button>
+                    <button onclick="submitCustomerOrder()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow">
+                        送出外帶訂單
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 3.1: Customer Cart / Item Customization Modal on Phone -->
+    <div id="customer-item-custom-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4 text-slate-800">
+            <div class="flex justify-between items-start border-b pb-2">
+                <div>
+                    <h3 class="font-bold text-base text-slate-800" id="cust-modal-name">品項名稱</h3>
+                    <span class="text-accent-600 font-bold text-sm" id="cust-modal-price">NT$ 0</span>
+                </div>
+                <button onclick="closeCustomerItemCustomModal()" class="text-slate-400 hover:text-slate-600 text-lg"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div id="cust-modal-subtype-section" class="space-y-1.5 hidden">
+                <label class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">選擇主食種類</label>
+                <div class="grid grid-cols-3 gap-1.5" id="cust-modal-subtype-options"></div>
+            </div>
+
+            <div id="cust-modal-spice-section" class="space-y-1.5">
+                <label class="text-[11px] font-bold text-rose-600 uppercase tracking-wider flex items-center gap-1">
+                    <i class="fa-solid fa-pepper-hot"></i> 辣度選擇
+                </label>
+                <div class="grid grid-cols-4 gap-1.5" id="cust-modal-spice-options">
+                    <button type="button" onclick="selectCustSpice('不辣')" class="cust-spice-btn py-1.5 px-1 border-2 border-slate-200 rounded-lg text-xs font-semibold text-center text-slate-700">不辣</button>
+                    <button type="button" onclick="selectCustSpice('小辣')" class="cust-spice-btn py-1.5 px-1 border-2 border-slate-200 rounded-lg text-xs font-semibold text-center text-slate-700">小辣</button>
+                    <button type="button" onclick="selectCustSpice('中辣')" class="cust-spice-btn py-1.5 px-1 border-2 border-slate-200 rounded-lg text-xs font-semibold text-center text-slate-700">中辣</button>
+                    <button type="button" onclick="selectCustSpice('大辣')" class="cust-spice-btn py-1.5 px-1 border-2 border-slate-200 rounded-lg text-xs font-semibold text-center text-slate-700">大辣</button>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between pt-1">
+                <span class="font-bold text-slate-700 text-xs">數量</span>
+                <div class="flex items-center space-x-2 bg-slate-100 p-1 rounded">
+                    <button onclick="adjustCustQty(-1)" class="w-6 h-6 rounded bg-white shadow text-slate-700 font-bold text-sm flex items-center justify-center">-</button>
+                    <span id="cust-modal-qty" class="font-bold text-sm w-5 text-center">1</span>
+                    <button onclick="adjustCustQty(1)" class="w-6 h-6 rounded bg-white shadow text-slate-700 font-bold text-sm flex items-center justify-center">+</button>
+                </div>
+            </div>
+
+            <button onclick="confirmAddToCartCustomer()" class="w-full py-2.5 bg-brand-900 hover:bg-brand-800 text-white rounded-xl font-bold text-sm shadow transition">
+                加入外帶購物車
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL 4: Thermal Receipt Preview / Printer Simulator -->
+    <div id="receipt-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div class="flex justify-between items-center border-b pb-2">
+                <h3 class="font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-receipt text-slate-700"></i> 廚房/櫃台熱感應單據
+                </h3>
+                <button onclick="closeReceiptModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Thermal Receipt Design View -->
+            <div id="thermal-receipt-print" class="bg-amber-50/50 p-4 rounded border border-dashed border-slate-300 font-mono text-xs text-slate-800 space-y-2 shadow-inner">
+                <div class="text-center border-b border-slate-400 pb-2">
+                    <h2 class="text-base font-bold tracking-wider">台味熱炒 - 點餐單</h2>
+                    <p class="text-[10px] text-slate-500" id="receipt-time">2026/11/10 15:30</p>
+                    <div class="text-sm font-bold mt-1" id="receipt-type-badge">【內用】桌號：A1</div>
+                    <div class="text-[10px] text-slate-600" id="receipt-order-no">單號：#001</div>
+                </div>
+
+                <div class="py-1 space-y-1 border-b border-slate-400" id="receipt-items-list">
+                    <!-- Dynamic receipt items -->
+                </div>
+
+                <div class="pt-1 flex justify-between font-bold text-sm">
+                    <span>總計金額</span>
+                    <span id="receipt-total-price">NT$ 0</span>
+                </div>
+                <div class="text-[10px] text-center text-slate-500 pt-2 border-t border-slate-300">
+                    *** 謝謝惠顧 祝您用餐愉快 ***
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <button onclick="window.print()" class="py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+                    <i class="fa-solid fa-print"></i> 列印至實體印表機
+                </button>
+                <button onclick="closeReceiptModal()" class="py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold">
+                    完成關閉
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 5: Edit / Add Menu Item Modal -->
+    <div id="edit-item-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <h3 class="font-bold text-lg text-slate-800 border-b pb-2" id="edit-modal-title">編輯品項</h3>
+            <form id="edit-item-form" onsubmit="saveMenuItem(event)" class="space-y-3">
+                <input type="hidden" id="edit-item-id">
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">分類</label>
+                    <select id="edit-item-category" class="w-full px-3 py-2 border rounded-lg text-sm bg-slate-50">
+                        <option value="hui">燴類 (燴麵/燴飯/燴米粉)</option>
+                        <option value="tangmian">湯麵 / 湯米粉</option>
+                        <option value="soup">喝湯</option>
+                        <option value="stirfry">生炒</option>
+                        <option value="rice">呷飯</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">品項名稱</label>
+                    <input type="text" id="edit-item-name" required class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-800">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">價格 (NT$)</label>
+                    <input type="number" id="edit-item-price" min="0" required class="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-800">
+                </div>
+                <div class="flex items-center space-x-2 pt-2">
+                    <input type="checkbox" id="edit-item-available" class="w-4 h-4 text-emerald-600 rounded">
+                    <label for="edit-item-available" class="text-sm text-slate-700 font-medium">正常供貨 (未勾選則顯示停售)</label>
+                </div>
+                <div class="flex justify-end gap-2 pt-4 border-t">
+                    <button type="button" onclick="closeEditItemModal()" class="px-4 py-2 border rounded-lg text-xs font-semibold text-slate-600">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-brand-900 text-white rounded-lg text-xs font-bold shadow">儲存設定</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL 6: External Printer Settings -->
+    <div id="printer-settings-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <h3 class="font-bold text-lg text-slate-800 border-b pb-2 flex items-center gap-2">
+                <i class="fa-solid fa-sliders text-emerald-800"></i> 外掛出單機與列印設定
+            </h3>
+            <div class="space-y-3 text-sm">
+                <div class="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                    <span>結帳時自動彈出熱感應單據</span>
+                    <input type="checkbox" id="setting-auto-modal" checked class="w-5 h-5 text-emerald-600">
+                </div>
+                <div class="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                    <span>出單機寬度規格</span>
+                    <select class="border rounded p-1 text-xs">
+                        <option>80mm 熱感應紙 (標準)</option>
+                        <option>58mm 小型熱感應紙</option>
+                    </select>
+                </div>
+                <div class="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                    <span>自動列印兩份 (櫃台+廚房)</span>
+                    <input type="checkbox" id="setting-double-print" class="w-5 h-5 text-emerald-600">
+                </div>
+            </div>
+            <div class="flex justify-end pt-2">
+                <button onclick="closePrinterSettingsModal()" class="px-4 py-2 bg-brand-900 text-white rounded-lg text-xs font-bold">儲存關閉</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 7: Settlement Details Modal -->
+    <div id="settlement-detail-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b pb-3">
+                <div>
+                    <h3 class="font-bold text-lg text-slate-800">歷史日結詳細品項統計</h3>
+                    <p class="text-xs text-slate-500" id="settlement-detail-time">結帳時間: --</p>
+                </div>
+                <button onclick="closeSettlementDetailModal()" class="text-slate-400 hover:text-slate-600 text-xl"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="flex-1 overflow-y-auto border rounded-lg">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-slate-50 text-slate-600 font-semibold sticky top-0">
+                        <tr>
+                            <th class="p-2.5">品項名稱</th>
+                            <th class="p-2.5 text-center">總售出數量</th>
+                            <th class="p-2.5 text-right">總銷售小計</th>
+                        </tr>
+                    </thead>
+                    <tbody id="settlement-detail-items" class="divide-y divide-slate-100">
+                        <!-- Populated dynamically -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="pt-2 border-t flex justify-between items-center font-bold">
+                <span>總單數: <span id="settlement-detail-orders" class="text-brand-900">0</span> 單</span>
+                <span class="text-accent-600 text-lg">總營收: NT$ <span id="settlement-detail-sales">0</span></span>
+            </div>
+            <button onclick="closeSettlementDetailModal()" class="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-sm font-bold">
+                關閉視窗
+            </button>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        // Default Menu Data structure from uploaded menu image
+        const DEFAULT_MENU = [
+            // 燴類 Matrix Categories
+            { id: 'h1', name: '鱔魚', category: 'hui', price: 130, subTypes: ['燴麵', '燴飯', '燴米粉'], available: true },
+            { id: 'h2', name: '魷魚', category: 'hui', price: 110, subTypes: ['燴麵', '燴飯', '燴米粉'], available: true },
+            { id: 'h3', name: '鮮蝦', category: 'hui', price: 110, subTypes: ['燴麵', '燴飯', '燴米粉'], available: true },
+            { id: 'h4', name: '豬肝', category: 'hui', price: 110, subTypes: ['燴麵', '燴飯', '燴米粉'], available: true },
+            { id: 'h5', name: '什錦', category: 'hui', price: 110, subTypes: ['燴麵', '燴飯', '燴米粉'], available: true },
+            { id: 'h6', name: '肉絲', category: 'hui', price: 110, subTypes: ['燴麵', '燴飯', '燴米粉'], available: true },
+            { id: 'h7', name: '羊肉', category: 'hui', price: 110, subTypes: ['燴麵', '燴飯', '燴米粉'], available: true },
+            { id: 'h8', name: '牛肉', category: 'hui', price: 110, subTypes: ['燴麵', '燴飯', '燴米粉'], available: true },
+
+            // 湯麵 / 湯米粉
+            { id: 'tm1', name: '當歸羊肉', category: 'tangmian', price: 110, subTypes: ['湯麵', '湯米粉'], available: true },
+            { id: 'tm2', name: '什錦', category: 'tangmian', price: 110, subTypes: ['湯麵', '湯米粉'], available: true },
+
+            // 喝湯 (Soups - NO SPICE)
+            { id: 's1', name: '當歸羊肉湯', category: 'soup', price: 60, available: true },
+            { id: 's2', name: '虱目魚丸湯', category: 'soup', price: 50, available: true },
+            { id: 's3', name: '蛤蜊湯', category: 'soup', price: 50, available: true },
+            { id: 's4', name: '魚皮湯', category: 'soup', price: 50, available: true },
+            { id: 's5', name: '豬肝湯', category: 'soup', price: 50, available: true },
+
+            // 生炒 (Stir Fry)
+            { id: 'sf1', name: '生炒鱔魚', category: 'stirfry', price: 180, available: true },
+            { id: 'sf2', name: '生炒魷魚', category: 'stirfry', price: 140, available: true },
+            { id: 'sf3', name: '生炒鮮蝦', category: 'stirfry', price: 140, available: true },
+            { id: 'sf4', name: '生炒豬肝', category: 'stirfry', price: 140, available: true },
+            { id: 'sf5', name: '生炒什錦', category: 'stirfry', price: 140, available: true },
+            { id: 'sf6', name: '生炒肉絲', category: 'stirfry', price: 140, available: true },
+            { id: 'sf7', name: '生炒羊肉', category: 'stirfry', price: 140, available: true },
+            { id: 'sf8', name: '生炒牛肉', category: 'stirfry', price: 140, available: true },
+            { id: 'sf9', name: '苦瓜鹹蛋', category: 'stirfry', price: 140, available: true },
+            { id: 'sf10', name: '苦瓜羊肉', category: 'stirfry', price: 140, available: true },
+            { id: 'sf11', name: '鮮炒時蔬', category: 'stirfry', price: 70, available: true },
+
+            // 呷飯 (Rice - NO SPICE)
+            { id: 'r1', name: '白飯', category: 'rice', price: 15, available: true },
+            { id: 'r2', name: '滷肉飯', category: 'rice', price: 35, available: true }
+        ];
+
+        const CATEGORIES = [
+            { id: 'all', name: '全部品項', icon: 'fa-border-all' },
+            { id: 'hui', name: '燴類 (燴麵/飯/米粉)', icon: 'fa-bowl-rice' },
+            { id: 'tangmian', name: '湯麵 / 湯米粉', icon: 'fa-bowl-food' },
+            { id: 'soup', name: '喝湯', icon: 'fa-mug-hot' },
+            { id: 'stirfry', name: '生炒', icon: 'fa-fire-burner' },
+            { id: 'rice', name: '呷飯', icon: 'fa-rice-bowl' }
+        ];
+
+        // State Management
+        let menuItems = JSON.parse(localStorage.getItem('pos_menu_items')) || DEFAULT_MENU;
+        let cart = [];
+        let orderType = 'dinein'; // 'dinein' or 'takeout'
+        let currentCategory = 'all';
+        let orderCounter = parseInt(localStorage.getItem('pos_order_counter')) || 1;
+        let salesHistory = JSON.parse(localStorage.getItem('pos_sales_history')) || [];
+        let settlementHistory = JSON.parse(localStorage.getItem('pos_settlement_history')) || [];
+
+        // Currently editing order state
+        let editingOrderNo = null;
+
+        // Currently selected item for Option Modal
+        let activeModalItem = null;
+        let selectedSubType = null;
+        let selectedSpice = '不辣';
+        let selectedModalQty = 1;
+
+        // Customer Phone Mode State
+        let customerCart = [];
+        let customerCurrentCategory = 'all';
+        let activeCustModalItem = null;
+        let custSelectedSubType = null;
+        let custSelectedSpice = '不辣';
+        let custSelectedQty = 1;
+
+        // Chart Instance
+        let monthlyChartInstance = null;
+
+        // Initialize App on DOM Load
+        window.onload = function() {
+            renderCategoryTabs();
+            renderMenuItems();
+            renderCart();
+            renderOrdersList();
+            renderManageItems();
+            initMonthlyChart();
+            updateReportStats();
+
+            // 修正重點：若網址含有 #takeout-order（代表透過外帶 QR 碼掃描進入），自動直接彈出手機外帶點餐介面
+            if (window.location.hash === '#takeout-order') {
+                openSimulatedCustomerView();
+            }
+        };
+
+        // Navigation Tabs
+        function switchTab(tab) {
+            document.getElementById('tab-pos').classList.add('hidden');
+            document.getElementById('tab-orders').classList.add('hidden');
+            document.getElementById('tab-manage').classList.add('hidden');
+            document.getElementById('tab-reports').classList.add('hidden');
+
+            document.getElementById('nav-pos').className = "px-4 py-2 rounded-lg font-medium text-sm transition flex items-center gap-2 bg-brand-800 hover:bg-emerald-700 text-emerald-100";
+            document.getElementById('nav-orders').className = "px-4 py-2 rounded-lg font-medium text-sm transition flex items-center gap-2 bg-brand-800 hover:bg-emerald-700 text-emerald-100";
+            document.getElementById('nav-manage').className = "px-4 py-2 rounded-lg font-medium text-sm transition flex items-center gap-2 bg-brand-800 hover:bg-emerald-700 text-emerald-100";
+            document.getElementById('nav-reports').className = "px-4 py-2 rounded-lg font-medium text-sm transition flex items-center gap-2 bg-brand-800 hover:bg-emerald-700 text-emerald-100";
+
+            document.getElementById(`tab-${tab}`).classList.remove('hidden');
+            document.getElementById(`nav-${tab}`).className = "px-4 py-2 rounded-lg font-medium text-sm transition flex items-center gap-2 bg-emerald-700 text-white shadow";
+
+            if(tab === 'orders') {
+                renderOrdersList();
+            } else if(tab === 'reports') {
+                updateReportStats();
+            }
+        }
+
+        // Render Category Tabs
+        function renderCategoryTabs() {
+            const container = document.getElementById('category-tabs');
+            container.innerHTML = CATEGORIES.map(cat => `
+                <button onclick="setCategory('${cat.id}')" class="px-4 py-2.5 rounded-xl font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${currentCategory === cat.id ? 'bg-brand-900 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                    <i class="fa-solid ${cat.icon}"></i> ${cat.name}
+                </button>
+            `).join('');
+        }
+
+        function setCategory(catId) {
+            currentCategory = catId;
+            renderCategoryTabs();
+            renderMenuItems();
+        }
+
+        // Render POS Menu Grid
+        function renderMenuItems() {
+            const grid = document.getElementById('menu-items-grid');
+            const filtered = currentCategory === 'all' 
+                ? menuItems 
+                : menuItems.filter(item => item.category === currentCategory);
+
+            grid.innerHTML = filtered.map(item => `
+                <div onclick="openOptionModal('${item.id}')" class="bg-white rounded-xl p-3 shadow-sm border border-slate-200 hover:shadow-md transition cursor-pointer flex flex-col justify-between h-28 relative overflow-hidden active:scale-95 ${!item.available ? 'opacity-50 pointer-events-none bg-slate-100' : ''}">
+                    ${!item.available ? '<span class="absolute top-2 right-2 bg-rose-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold">已售完</span>' : ''}
+                    <div>
+                        <div class="text-xs text-brand-800 font-bold mb-0.5">${getCategoryLabel(item.category)}</div>
+                        <h3 class="font-bold text-slate-800 text-base leading-snug">${item.name}</h3>
+                    </div>
+                    <div class="flex justify-between items-end border-t pt-1 border-slate-100">
+                        <span class="text-xs text-slate-400 font-medium">${item.subTypes ? item.subTypes.join('/') : '單品'}</span>
+                        <span class="text-accent-600 font-black text-lg">NT$ ${item.price}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function getCategoryLabel(catKey) {
+            const cat = CATEGORIES.find(c => c.id === catKey);
+            return cat ? cat.name.split(' ')[0] : '';
+        }
+
+        // Open Sub-Options & Spiciness Selector Modal (Hides Spiciness for soup & rice)
+        function openOptionModal(itemId) {
+            const item = menuItems.find(i => i.id === itemId);
+            if(!item || !item.available) return;
+
+            activeModalItem = item;
+            selectedSpice = '不辣';
+            selectedModalQty = 1;
+
+            document.getElementById('modal-item-name').innerText = item.name;
+            document.getElementById('modal-item-price').innerText = `NT$ ${item.price}`;
+            document.getElementById('modal-item-qty').innerText = '1';
+
+            // Check if category is soup or rice -> hide spice options
+            const spiceSection = document.getElementById('spice-container-section');
+            if(item.category === 'soup' || item.category === 'rice') {
+                spiceSection.classList.add('hidden');
+                selectedSpice = '無';
+            } else {
+                spiceSection.classList.remove('hidden');
+                document.querySelectorAll('.spice-btn').forEach(btn => {
+                    btn.classList.remove('border-brand-800', 'bg-emerald-50', 'text-brand-900');
+                    if(btn.innerText === '不辣') btn.classList.add('border-brand-800', 'bg-emerald-50', 'text-brand-900');
+                });
+            }
+
+            // Handle Sub-types
+            const subTypeSection = document.getElementById('sub-type-section');
+            const subTypeContainer = document.getElementById('sub-type-options');
+
+            if(item.subTypes && item.subTypes.length > 0) {
+                selectedSubType = item.subTypes[0];
+                subTypeSection.classList.remove('hidden');
+                subTypeContainer.innerHTML = item.subTypes.map((st, idx) => `
+                    <button type="button" onclick="selectSubType('${st}')" class="sub-type-btn py-2 px-2 border-2 ${idx === 0 ? 'border-brand-800 bg-emerald-50 text-brand-900' : 'border-slate-200 text-slate-700'} rounded-lg text-sm font-bold text-center">
+                        ${st}
+                    </button>
+                `).join('');
+            } else {
+                selectedSubType = null;
+                subTypeSection.classList.add('hidden');
+            }
+
+            document.getElementById('option-modal').classList.remove('hidden');
+        }
+
+        function selectSubType(st) {
+            selectedSubType = st;
+            document.querySelectorAll('.sub-type-btn').forEach(btn => {
+                if(btn.innerText.trim() === st) {
+                    btn.className = "sub-type-btn py-2 px-2 border-2 border-brand-800 bg-emerald-50 text-brand-900 rounded-lg text-sm font-bold text-center";
+                } else {
+                    btn.className = "sub-type-btn py-2 px-2 border-2 border-slate-200 text-slate-700 rounded-lg text-sm font-bold text-center";
+                }
+            });
+        }
+
+        function selectSpice(spice) {
+            selectedSpice = spice;
+            document.querySelectorAll('.spice-btn').forEach(btn => {
+                if(btn.innerText.trim() === spice) {
+                    btn.className = "spice-btn py-2 px-1 border-2 border-brand-800 bg-emerald-50 text-brand-900 rounded-lg text-sm font-semibold text-center";
+                } else {
+                    btn.className = "spice-btn py-2 px-1 border-2 border-slate-200 text-slate-700 rounded-lg text-sm font-semibold text-center";
+                }
+            });
+        }
+
+        function adjustModalQty(delta) {
+            selectedModalQty = Math.max(1, selectedModalQty + delta);
+            document.getElementById('modal-item-qty').innerText = selectedModalQty;
+        }
+
+        function closeOptionModal() {
+            document.getElementById('option-modal').classList.add('hidden');
+        }
+
+        // Add Selected Item to POS Cart
+        function confirmAddToCart() {
+            if(!activeModalItem) return;
+
+            const fullName = selectedSubType ? `${activeModalItem.name} (${selectedSubType})` : activeModalItem.name;
+            const itemKey = `${activeModalItem.id}_${selectedSubType || 'default'}_${selectedSpice}`;
+
+            const existing = cart.find(c => c.key === itemKey);
+            if(existing) {
+                existing.qty += selectedModalQty;
+            } else {
+                cart.push({
+                    key: itemKey,
+                    id: activeModalItem.id,
+                    name: fullName,
+                    spice: selectedSpice,
+                    price: activeModalItem.price,
+                    qty: selectedModalQty
+                });
+            }
+
+            closeOptionModal();
+            renderCart();
+        }
+
+        // Render Cart Panel
+        function renderCart() {
+            const container = document.getElementById('cart-items-container');
+            const cartTitle = document.getElementById('cart-mode-title');
+            const checkoutBtn = document.getElementById('btn-checkout');
+            const editingBanner = document.getElementById('editing-banner');
+
+            if (editingOrderNo !== null) {
+                cartTitle.innerText = "修改歷史訂單";
+                document.getElementById('order-id-badge').innerText = `#${String(editingOrderNo).padStart(3, '0')}`;
+                checkoutBtn.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> 更新訂單單據`;
+                editingBanner.classList.remove('hidden');
+                document.getElementById('editing-order-no').innerText = `#${String(editingOrderNo).padStart(3, '0')}`;
+            } else {
+                cartTitle.innerText = "當前訂單";
+                document.getElementById('order-id-badge').innerText = `#${String(orderCounter).padStart(3, '0')}`;
+                checkoutBtn.innerHTML = `<i class="fa-solid fa-print"></i> 結帳並出單`;
+                editingBanner.classList.add('hidden');
+            }
+
+            if(cart.length === 0) {
+                container.innerHTML = `
+                    <div class="h-full flex flex-col items-center justify-center text-slate-400 space-y-2 py-12">
+                        <i class="fa-solid fa-cart-shopping text-4xl"></i>
+                        <p class="text-sm">請點擊左側餐點加入訂單</p>
+                    </div>
+                `;
+                document.getElementById('cart-total-qty').innerText = '0 件';
+                document.getElementById('cart-total-price').innerText = 'NT$ 0';
+                return;
+            }
+
+            let totalQty = 0;
+            let totalPrice = 0;
+
+            container.innerHTML = cart.map((item, index) => {
+                totalQty += item.qty;
+                const subtotal = item.price * item.qty;
+                totalPrice += subtotal;
+
+                return `
+                    <div class="pt-2 pb-1 flex justify-between items-start text-sm">
+                        <div class="flex-1 pr-2">
+                            <div class="font-bold text-slate-800 leading-tight">${item.name}</div>
+                            ${item.spice !== '無' ? `<div class="text-xs text-rose-600 font-semibold mt-0.5">辣度: ${item.spice}</div>` : ''}
+                            <div class="text-xs text-slate-400">NT$ ${item.price} / 份</div>
+                        </div>
+                        <div class="flex flex-col items-end gap-1">
+                            <div class="flex items-center space-x-1.5 bg-slate-100 p-1 rounded">
+                                <button onclick="updateCartQty(${index}, -1)" class="w-6 h-6 bg-white rounded shadow text-slate-700 font-bold flex items-center justify-center text-xs">-</button>
+                                <span class="text-xs font-bold w-4 text-center">${item.qty}</span>
+                                <button onclick="updateCartQty(${index}, 1)" class="w-6 h-6 bg-white rounded shadow text-slate-700 font-bold flex items-center justify-center text-xs">+</button>
+                            </div>
+                            <span class="font-bold text-slate-800 text-sm">NT$ ${subtotal}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            document.getElementById('cart-total-qty').innerText = `${totalQty} 件`;
+            document.getElementById('cart-total-price').innerText = `NT$ ${totalPrice}`;
+        }
+
+        function updateCartQty(index, delta) {
+            cart[index].qty += delta;
+            if(cart[index].qty <= 0) {
+                cart.splice(index, 1);
+            }
+            renderCart();
+        }
+
+        function clearCart() {
+            cart = [];
+            renderCart();
+        }
+
+        function cancelEditingOrder() {
+            editingOrderNo = null;
+            cart = [];
+            document.getElementById('order-note').value = '';
+            renderCart();
+        }
+
+        function setOrderType(type) {
+            orderType = type;
+            const dineBtn = document.getElementById('type-dinein');
+            const takeBtn = document.getElementById('type-takeout');
+
+            if(type === 'dinein') {
+                dineBtn.className = "px-3 py-1 rounded-md transition bg-brand-900 text-white shadow";
+                takeBtn.className = "px-3 py-1 rounded-md transition text-slate-600 hover:text-slate-900";
+            } else {
+                takeBtn.className = "px-3 py-1 rounded-md transition bg-brand-900 text-white shadow";
+                dineBtn.className = "px-3 py-1 rounded-md transition text-slate-600 hover:text-slate-900";
+            }
+        }
+
+        // Process Checkout
+        function processCheckout() {
+            if(cart.length === 0) {
+                alert('購物車為空，請選擇餐點後再結帳！');
+                return;
+            }
+
+            const note = document.getElementById('order-note').value.trim() || (orderType === 'dinein' ? '內用' : '外帶顧客');
+            const total = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+            const now = new Date();
+
+            if (editingOrderNo !== null) {
+                const targetIdx = salesHistory.findIndex(o => o.orderNo === editingOrderNo);
+                if (targetIdx !== -1) {
+                    salesHistory[targetIdx].type = orderType;
+                    salesHistory[targetIdx].note = note;
+                    salesHistory[targetIdx].items = [...cart];
+                    salesHistory[targetIdx].totalAmount = total;
+                    salesHistory[targetIdx].updatedTimeStr = now.toLocaleString('zh-TW', { hour12: false });
+
+                    localStorage.setItem('pos_sales_history', JSON.stringify(salesHistory));
+                    showReceiptModal(salesHistory[targetIdx]);
+                    alert(`訂單 #${String(editingOrderNo).padStart(3, '0')} 已成功修改並更新！`);
+                }
+                editingOrderNo = null;
+            } else {
+                const orderRecord = {
+                    orderNo: orderCounter,
+                    timestamp: now.toISOString(),
+                    timeStr: now.toLocaleString('zh-TW', { hour12: false }),
+                    type: orderType,
+                    note: note,
+                    items: [...cart],
+                    totalAmount: total
+                };
+
+                salesHistory.push(orderRecord);
+                localStorage.setItem('pos_sales_history', JSON.stringify(salesHistory));
+
+                showReceiptModal(orderRecord);
+
+                orderCounter++;
+                localStorage.setItem('pos_order_counter', orderCounter.toString());
+            }
+
+            cart = [];
+            document.getElementById('order-note').value = '';
+            renderCart();
+            renderOrdersList();
+        }
+
+        // ORDERS MANAGEMENT LIST & ACTIONS
+        function renderOrdersList() {
+            const container = document.getElementById('orders-list-rows');
+            document.getElementById('orders-count-badge').innerText = salesHistory.length;
+
+            if (salesHistory.length === 0) {
+                container.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-slate-400 font-medium">目前尚無已完成的點餐訂單紀錄</td></tr>`;
+                return;
+            }
+
+            const reversedOrders = [...salesHistory].reverse();
+
+            container.innerHTML = reversedOrders.map(order => {
+                const itemsSummary = order.items.map(i => `<span class="inline-block bg-slate-100 rounded px-1.5 py-0.5 text-xs font-semibold mr-1 mb-1 text-slate-700">${i.name} ${i.spice !== '无' && i.spice !== '無' ? '['+i.spice+']' : ''} x${i.qty}</span>`).join('');
+
+                return `
+                    <tr class="hover:bg-slate-50 transition">
+                        <td class="p-3 font-mono font-bold text-brand-900 text-base">#${String(order.orderNo).padStart(3, '0')}</td>
+                        <td class="p-3 text-xs text-slate-500 font-medium">
+                            ${order.timeStr}
+                            ${order.updatedTimeStr ? `<br><span class="text-[10px] text-amber-600 font-bold">(已於 ${order.updatedTimeStr} 修改)</span>` : ''}
+                        </td>
+                        <td class="p-3">
+                            <span class="px-2 py-0.5 rounded text-xs font-bold ${order.type === 'dinein' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">
+                                ${order.type === 'dinein' ? '內用' : '外帶'}
+                            </span>
+                            <div class="text-xs text-slate-600 font-bold mt-1">${order.note}</div>
+                        </td>
+                        <td class="p-3 max-w-xs">${itemsSummary}</td>
+                        <td class="p-3 text-right font-black text-rose-600 text-base">NT$ ${order.totalAmount}</td>
+                        <td class="p-3 text-center">
+                            <div class="flex items-center justify-center gap-1.5">
+                                <button onclick="startEditOrder(${order.orderNo})" class="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs font-bold shadow flex items-center gap-1">
+                                    <i class="fa-solid fa-pen"></i> 修改
+                                </button>
+                                <button onclick="reprintOrderReceipt(${order.orderNo})" class="px-2.5 py-1 bg-slate-700 hover:bg-slate-800 text-white rounded text-xs font-bold shadow flex items-center gap-1">
+                                    <i class="fa-solid fa-print"></i> 補印
+                                </button>
+                                <button onclick="deleteOrderRecord(${order.orderNo})" class="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-bold shadow flex items-center gap-1" title="作廢訂單">
+                                    <i class="fa-solid fa-trash"></i> 作廢
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function startEditOrder(orderNo) {
+            const order = salesHistory.find(o => o.orderNo === orderNo);
+            if (!order) return;
+
+            editingOrderNo = order.orderNo;
+            cart = JSON.parse(JSON.stringify(order.items));
+            setOrderType(order.type);
+            document.getElementById('order-note').value = order.note || '';
+
+            switchTab('pos');
+            renderCart();
+        }
+
+        function reprintOrderReceipt(orderNo) {
+            const order = salesHistory.find(o => o.orderNo === orderNo);
+            if (order) {
+                showReceiptModal(order);
+                document.getElementById('receipt-modal').classList.remove('hidden');
+            }
+        }
+
+        function deleteOrderRecord(orderNo) {
+            if (confirm(`確定要作廢並刪除訂單 #${String(orderNo).padStart(3, '0')} 嗎？營業額將同步倒扣退回。`)) {
+                salesHistory = salesHistory.filter(o => o.orderNo !== orderNo);
+                localStorage.setItem('pos_sales_history', JSON.stringify(salesHistory));
+
+                if (editingOrderNo === orderNo) {
+                    cancelEditingOrder();
+                }
+
+                renderOrdersList();
+                updateReportStats();
+                alert(`訂單 #${String(orderNo).padStart(3, '0')} 已成功作廢刪除。`);
+            }
+        }
+
+        function showReceiptModal(record) {
+            document.getElementById('receipt-time').innerText = record.updatedTimeStr ? `${record.timeStr} (重印)` : record.timeStr;
+            document.getElementById('receipt-type-badge').innerText = `【${record.type === 'dinein' ? '內用' : '外帶'}】 ${record.note}`;
+            document.getElementById('receipt-order-no').innerText = `單號：#${String(record.orderNo).padStart(3, '0')}`;
+
+            const itemsContainer = document.getElementById('receipt-items-list');
+            itemsContainer.innerHTML = record.items.map(item => `
+                <div class="flex justify-between items-start">
+                    <div>
+                        <div class="font-bold">${item.name}</div>
+                        ${item.spice !== '無' && item.spice !== '无' ? `<div class="text-[10px] text-slate-600">[${item.spice}] x ${item.qty}</div>` : `<div class="text-[10px] text-slate-600">x ${item.qty}</div>`}
+                    </div>
+                    <span>$${item.price * item.qty}</span>
+                </div>
+            `).join('');
+
+            document.getElementById('receipt-total-price').innerText = `NT$ ${record.totalAmount}`;
+
+            if(document.getElementById('setting-auto-modal').checked) {
+                document.getElementById('receipt-modal').classList.remove('hidden');
+            }
+        }
+
+        function closeReceiptModal() {
+            document.getElementById('receipt-modal').classList.add('hidden');
+        }
+
+        // QR Code Modal Features
+        function openCustomerQrModal() {
+            const qrContainer = document.getElementById('qrcode-container');
+            qrContainer.innerHTML = '';
+            
+            // 確保 QR 碼包含 #takeout-order 雜湊網址
+            const cleanBaseUrl = window.location.href.split('#')[0];
+            new QRCode(qrContainer, {
+                text: cleanBaseUrl + '#takeout-order',
+                width: 140,
+                height: 140,
+                colorDark : "#14532d",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+
+            document.getElementById('qr-modal').classList.remove('hidden');
+        }
+
+        function closeCustomerQrModal() {
+            document.getElementById('qr-modal').classList.add('hidden');
+        }
+
+        // Simulated Customer Phone View (Supports Full Menu with Category Navigation & No Spice for Soup/Rice)
+        function openSimulatedCustomerView() {
+            closeCustomerQrModal();
+            customerCart = [];
+            customerCurrentCategory = 'all';
+
+            renderCustomerCategoryTabs();
+            renderCustomerMenuList();
+            updateCustomerCartSummary();
+            document.getElementById('customer-phone-modal').classList.remove('hidden');
+        }
+
+        function renderCustomerCategoryTabs() {
+            const container = document.getElementById('customer-category-tabs');
+            container.innerHTML = CATEGORIES.map(cat => `
+                <button onclick="setCustomerCategory('${cat.id}')" class="px-2.5 py-1.5 rounded-lg font-bold whitespace-nowrap transition ${customerCurrentCategory === cat.id ? 'bg-emerald-600 text-white shadow' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}">
+                    ${cat.name.split(' ')[0]}
+                </button>
+            `).join('');
+        }
+
+        function setCustomerCategory(catId) {
+            customerCurrentCategory = catId;
+            renderCustomerCategoryTabs();
+            renderCustomerMenuList();
+        }
+
+        function renderCustomerMenuList() {
+            const list = document.getElementById('customer-menu-list');
+            const filtered = customerCurrentCategory === 'all' 
+                ? menuItems.filter(i => i.available)
+                : menuItems.filter(i => i.category === customerCurrentCategory && i.available);
+
+            if(filtered.length === 0) {
+                list.innerHTML = `<div class="text-center py-10 text-slate-400 text-xs">此分類目前無供貨品項</div>`;
+                return;
+            }
+
+            list.innerHTML = filtered.map(item => `
+                <div class="bg-white p-2.5 rounded-xl border flex justify-between items-center text-xs shadow-sm">
+                    <div>
+                        <div class="font-bold text-slate-800 text-sm">${item.name}</div>
+                        <div class="text-[10px] text-slate-400">${item.subTypes ? item.subTypes.join('/') : getCategoryLabel(item.category)}</div>
+                        <div class="text-rose-600 font-black mt-0.5">NT$ ${item.price}</div>
+                    </div>
+                    <button onclick="openCustomerItemCustomModal('${item.id}')" class="px-3 py-1.5 bg-brand-900 hover:bg-brand-800 text-white rounded-lg font-bold shadow flex items-center gap-1">
+                        <i class="fa-solid fa-plus"></i> 選購
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function openCustomerItemCustomModal(itemId) {
+            const item = menuItems.find(i => i.id === itemId);
+            if(!item) return;
+
+            activeCustModalItem = item;
+            custSelectedSpice = '不辣';
+            custSelectedQty = 1;
+
+            document.getElementById('cust-modal-name').innerText = item.name;
+            document.getElementById('cust-modal-price').innerText = `NT$ ${item.price}`;
+            document.getElementById('cust-modal-qty').innerText = '1';
+
+            // Check if Soup or Rice -> Hide Spice section
+            const spiceSec = document.getElementById('cust-modal-spice-section');
+            if(item.category === 'soup' || item.category === 'rice') {
+                spiceSec.classList.add('hidden');
+                custSelectedSpice = '無';
+            } else {
+                spiceSec.classList.remove('hidden');
+                document.querySelectorAll('.cust-spice-btn').forEach(btn => {
+                    btn.classList.remove('border-emerald-600', 'bg-emerald-50', 'text-emerald-900');
+                    if(btn.innerText === '不辣') btn.classList.add('border-emerald-600', 'bg-emerald-50', 'text-emerald-900');
+                });
+            }
+
+            const subtypeSec = document.getElementById('cust-modal-subtype-section');
+            const subtypeOpts = document.getElementById('cust-modal-subtype-options');
+
+            if(item.subTypes && item.subTypes.length > 0) {
+                custSelectedSubType = item.subTypes[0];
+                subtypeSec.classList.remove('hidden');
+                subtypeOpts.innerHTML = item.subTypes.map((st, idx) => `
+                    <button type="button" onclick="selectCustSubType('${st}')" class="cust-subtype-btn py-1.5 px-2 border-2 ${idx === 0 ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-700'} rounded-lg text-xs font-bold text-center">
+                        ${st}
+                    </button>
+                `).join('');
+            } else {
+                custSelectedSubType = null;
+                subtypeSec.classList.add('hidden');
+            }
+
+            document.getElementById('customer-item-custom-modal').classList.remove('hidden');
+        }
+
+        function selectCustSubType(st) {
+            custSelectedSubType = st;
+            document.querySelectorAll('.cust-subtype-btn').forEach(btn => {
+                if(btn.innerText.trim() === st) {
+                    btn.className = "cust-subtype-btn py-1.5 px-2 border-2 border-emerald-600 bg-emerald-50 text-emerald-900 rounded-lg text-xs font-bold text-center";
+                } else {
+                    btn.className = "cust-subtype-btn py-1.5 px-2 border-2 border-slate-200 text-slate-700 rounded-lg text-xs font-bold text-center";
+                }
+            });
+        }
+
+        function selectCustSpice(spice) {
+            custSelectedSpice = spice;
+            document.querySelectorAll('.cust-spice-btn').forEach(btn => {
+                if(btn.innerText.trim() === spice) {
+                    btn.className = "cust-spice-btn py-1.5 px-1 border-2 border-emerald-600 bg-emerald-50 text-emerald-900 rounded-lg text-xs font-semibold text-center";
+                } else {
+                    btn.className = "cust-spice-btn py-1.5 px-1 border-2 border-slate-200 text-slate-700 rounded-lg text-xs font-semibold text-center";
+                }
+            });
+        }
+
+        function adjustCustQty(delta) {
+            custSelectedQty = Math.max(1, custSelectedQty + delta);
+            document.getElementById('cust-modal-qty').innerText = custSelectedQty;
+        }
+
+        function closeCustomerItemCustomModal() {
+            document.getElementById('customer-item-custom-modal').classList.add('hidden');
+        }
+
+        function confirmAddToCartCustomer() {
+            if(!activeCustModalItem) return;
+
+            const fullName = custSelectedSubType ? `${activeCustModalItem.name} (${custSelectedSubType})` : activeCustModalItem.name;
+            const itemKey = `${activeCustModalItem.id}_${custSelectedSubType || 'default'}_${custSelectedSpice}`;
+
+            const existing = customerCart.find(c => c.key === itemKey);
+            if(existing) {
+                existing.qty += custSelectedQty;
+            } else {
+                customerCart.push({
+                    key: itemKey,
+                    id: activeCustModalItem.id,
+                    name: fullName,
+                    spice: custSelectedSpice,
+                    price: activeCustModalItem.price,
+                    qty: custSelectedQty
+                });
+            }
+
+            closeCustomerItemCustomModal();
+            updateCustomerCartSummary();
+        }
+
+        function updateCustomerCartSummary() {
+            const totalQty = customerCart.reduce((sum, item) => sum + item.qty, 0);
+            const totalPrice = customerCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+            document.getElementById('customer-cart-summary-text').innerText = `已選 ${totalQty} 件品項`;
+            document.getElementById('customer-cart-total').innerText = `NT$ ${totalPrice}`;
+        }
+
+        function viewCustomerCartModal() {
+            if(customerCart.length === 0) {
+                alert('外帶購物車目前是空的！');
+                return;
+            }
+            let summary = customerCart.map(i => `• ${i.name} ${i.spice !== '無' && i.spice !== '无' ? '['+i.spice+']' : ''} x${i.qty} (NT$ ${i.price * i.qty})`).join('\n');
+            alert(`【目前手機外帶清單】\n\n${summary}\n\n總計: NT$ ${customerCart.reduce((s, i) => s + (i.price * i.qty), 0)}`);
+        }
+
+        function submitCustomerOrder() {
+            if(customerCart.length === 0) {
+                alert('請先選擇餐點！');
+                return;
+            }
+
+            // 如果是在手機端網頁掃碼，可以透過 alert 提示並清空或轉為送出提示
+            if (window.location.hash === '#takeout-order') {
+                alert('您的外帶訂單已成功送出！請至櫃台等候叫號取餐。');
+                customerCart = [];
+                updateCustomerCartSummary();
+                return;
+            }
+
+            cart = [...customerCart];
+            setOrderType('takeout');
+            document.getElementById('order-note').value = 'QR掃碼外帶';
+            closeCustomerPhoneModal();
+            renderCart();
+            alert('成功接收手機 QR 碼外帶點餐！已自動載入櫃台購物車。');
+        }
+
+        function closeCustomerPhoneModal() {
+            document.getElementById('customer-phone-modal').classList.add('hidden');
+        }
+
+        // MENU MANAGEMENT SECTION
+        function renderManageItems() {
+            const container = document.getElementById('manage-items-list');
+            document.getElementById('manage-total-count').innerText = menuItems.length;
+
+            container.innerHTML = menuItems.map(item => `
+                <div class="p-3 hover:bg-slate-50 flex items-center justify-between text-sm">
+                    <div class="flex items-center space-x-3">
+                        <span class="px-2 py-0.5 bg-slate-200 rounded text-xs font-bold text-slate-600">${getCategoryLabel(item.category)}</span>
+                        <div>
+                            <span class="font-bold text-slate-800">${item.name}</span>
+                            ${item.subTypes ? `<span class="text-xs text-slate-400 ml-2">(${item.subTypes.join('/')})</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <span class="font-bold text-accent-600">NT$ ${item.price}</span>
+                        <span class="px-2 py-0.5 rounded text-xs font-bold ${item.available ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}">
+                            ${item.available ? '供貨中' : '停售'}
+                        </span>
+                        <button onclick="openEditItemModal('${item.id}')" class="text-slate-500 hover:text-brand-900 font-bold text-xs p-1">
+                            <i class="fa-solid fa-pen"></i> 編輯
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function openEditItemModal(itemId = null) {
+            if(itemId) {
+                const item = menuItems.find(i => i.id === itemId);
+                document.getElementById('edit-modal-title').innerText = '編輯菜色與價格';
+                document.getElementById('edit-item-id').value = item.id;
+                document.getElementById('edit-item-category').value = item.category;
+                document.getElementById('edit-item-name').value = item.name;
+                document.getElementById('edit-item-price').value = item.price;
+                document.getElementById('edit-item-available').checked = item.available;
+            } else {
+                document.getElementById('edit-modal-title').innerText = '新增菜色';
+                document.getElementById('edit-item-id').value = '';
+                document.getElementById('edit-item-category').value = 'stirfry';
+                document.getElementById('edit-item-name').value = '';
+                document.getElementById('edit-item-price').value = '100';
+                document.getElementById('edit-item-available').checked = true;
+            }
+            document.getElementById('edit-item-modal').classList.remove('hidden');
+        }
+
+        function openAddItemModal() {
+            openEditItemModal(null);
+        }
+
+        function closeEditItemModal() {
+            document.getElementById('edit-item-modal').classList.add('hidden');
+        }
+
+        function saveMenuItem(e) {
+            e.preventDefault();
+            const id = document.getElementById('edit-item-id').value;
+            const category = document.getElementById('edit-item-category').value;
+            const name = document.getElementById('edit-item-name').value.trim();
+            const price = parseInt(document.getElementById('edit-item-price').value);
+            const available = document.getElementById('edit-item-available').checked;
+
+            if(id) {
+                const idx = menuItems.findIndex(i => i.id === id);
+                if(idx !== -1) {
+                    menuItems[idx].category = category;
+                    menuItems[idx].name = name;
+                    menuItems[idx].price = price;
+                    menuItems[idx].available = available;
+                }
+            } else {
+                menuItems.push({
+                    id: 'custom_' + Date.now(),
+                    category,
+                    name,
+                    price,
+                    available
+                });
+            }
+
+            localStorage.setItem('pos_menu_items', JSON.stringify(menuItems));
+            closeEditItemModal();
+            renderMenuItems();
+            renderManageItems();
+        }
+
+        function resetMenuToDefault() {
+            if(confirm('確定要將菜單回復至最初圖片預設值嗎？自訂修改將會被重置。')) {
+                menuItems = [...DEFAULT_MENU];
+                localStorage.setItem('pos_menu_items', JSON.stringify(menuItems));
+                renderMenuItems();
+                renderManageItems();
+            }
+        }
+
+        // REPORTS & SETTLEMENT SECTION
+        function updateReportStats() {
+            const totalSales = salesHistory.reduce((sum, o) => sum + o.totalAmount, 0);
+            const totalOrders = salesHistory.length;
+            const avgOrder = totalOrders > 0 ? Math.round(totalSales / totalOrders) : 0;
+
+            document.getElementById('report-today-sales').innerText = `NT$ ${totalSales}`;
+            document.getElementById('report-today-orders').innerText = `${totalOrders} 單`;
+            document.getElementById('report-avg-order').innerText = `NT$ ${avgOrder}`;
+
+            const itemMap = {};
+            salesHistory.forEach(order => {
+                order.items.forEach(i => {
+                    if(!itemMap[i.name]) itemMap[i.name] = { qty: 0, total: 0 };
+                    itemMap[i.name].qty += i.qty;
+                    itemMap[i.name].total += (i.price * i.qty);
+                });
+            });
+
+            const sortedItems = Object.entries(itemMap).sort((a,b) => b[1].qty - a[1].qty);
+            document.getElementById('report-top-item').innerText = sortedItems.length > 0 ? sortedItems[0][0] : '--';
+
+            const breakdownContainer = document.getElementById('report-item-breakdown');
+            if(sortedItems.length === 0) {
+                breakdownContainer.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-slate-400">今日尚無銷售紀錄</td></tr>';
+            } else {
+                breakdownContainer.innerHTML = sortedItems.map(([name, stat]) => `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-2.5 font-bold text-slate-700">${name}</td>
+                        <td class="p-2.5 text-center font-semibold text-slate-600">${stat.qty}</td>
+                        <td class="p-2.5 text-right font-bold text-slate-800">NT$ ${stat.total}</td>
+                    </tr>
+                `).join('');
+            }
+
+            const historyContainer = document.getElementById('settlement-history-rows');
+            if(settlementHistory.length === 0) {
+                historyContainer.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400">尚無歷史日結紀錄</td></tr>';
+            } else {
+                historyContainer.innerHTML = settlementHistory.map((s, index) => `
+                    <tr class="hover:bg-slate-50 transition">
+                        <td class="p-2.5 text-slate-700 font-medium cursor-pointer" onclick="viewSettlementDetail(${index})" title="點擊查看品項明細">
+                            <span class="underline decoration-emerald-600 font-bold">${s.timeStr}</span>
+                            <span class="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded ml-1">點擊看明細</span>
+                        </td>
+                        <td class="p-2.5 text-center font-bold">${s.totalOrders} 單</td>
+                        <td class="p-2.5 text-right font-black text-emerald-800">NT$ ${s.totalSales}</td>
+                        <td class="p-2.5 text-center text-xs text-slate-500">${s.operator}</td>
+                        <td class="p-2.5 text-center">
+                            <button onclick="deleteSettlementRecord(${index})" class="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-bold shadow flex items-center justify-center gap-1 mx-auto">
+                                <i class="fa-solid fa-trash"></i> 刪除
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+        }
+
+        function viewSettlementDetail(index) {
+            const record = settlementHistory[index];
+            if (!record) return;
+
+            document.getElementById('settlement-detail-time').innerText = `結帳時間: ${record.timeStr}`;
+            document.getElementById('settlement-detail-orders').innerText = record.totalOrders;
+            document.getElementById('settlement-detail-sales').innerText = record.totalSales;
+
+            const container = document.getElementById('settlement-detail-items');
+            const items = record.itemBreakdown || [];
+
+            if (items.length === 0) {
+                container.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-slate-400">此筆舊紀錄無詳細品項資料</td></tr>';
+            } else {
+                container.innerHTML = items.map(i => `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-2.5 font-bold text-slate-700">${i.name}</td>
+                        <td class="p-2.5 text-center font-semibold text-slate-600">${i.qty}</td>
+                        <td class="p-2.5 text-right font-bold text-slate-800">NT$ ${i.total}</td>
+                    </tr>
+                `).join('');
+            }
+
+            document.getElementById('settlement-detail-modal').classList.remove('hidden');
+        }
+
+        function closeSettlementDetailModal() {
+            document.getElementById('settlement-detail-modal').classList.add('hidden');
+        }
+
+        function deleteSettlementRecord(index) {
+            const password = prompt('【安全驗證】請輸入解鎖密碼以刪除此筆歷史日結紀錄：');
+            if (password === null) return;
+
+            if (password !== '8888') {
+                alert('密碼錯誤！刪除操作已取消。');
+                return;
+            }
+
+            if (confirm('密碼正確！確定要刪除這筆歷史日結紀錄嗎？')) {
+                settlementHistory.splice(index, 1);
+                localStorage.setItem('pos_settlement_history', JSON.stringify(settlementHistory));
+                updateReportStats();
+                alert('歷史日結紀錄已成功刪除！');
+            }
+        }
+
+        function triggerDailySettlement() {
+            if(salesHistory.length === 0) {
+                alert('今日尚無任何點餐銷售紀錄，無需結帳！');
+                return;
+            }
+
+            const totalSales = salesHistory.reduce((sum, o) => sum + o.totalAmount, 0);
+            const confirmMsg = `確定要執行【今日日結帳】嗎？\n\n今日總單數：${salesHistory.length} 單\n今日總營收：NT$ ${totalSales}\n\n執行後將會封存今日銷售與品項分類總和，並重置單號號碼。`;
+
+            if(confirm(confirmMsg)) {
+                const itemMap = {};
+                salesHistory.forEach(order => {
+                    order.items.forEach(i => {
+                        if(!itemMap[i.name]) itemMap[i.name] = { qty: 0, total: 0 };
+                        itemMap[i.name].qty += i.qty;
+                        itemMap[i.name].total += (i.price * i.qty);
+                    });
+                });
+
+                const itemBreakdownArray = Object.entries(itemMap).map(([name, stat]) => ({
+                    name: name,
+                    qty: stat.qty,
+                    total: stat.total
+                })).sort((a, b) => b.qty - a.qty);
+
+                const settlementRecord = {
+                    timeStr: new Date().toLocaleString('zh-TW', { hour12: false }),
+                    totalOrders: salesHistory.length,
+                    totalSales: totalSales,
+                    operator: '櫃台管理員',
+                    itemBreakdown: itemBreakdownArray
+                };
+
+                settlementHistory.unshift(settlementRecord);
+                localStorage.setItem('pos_settlement_history', JSON.stringify(settlementHistory));
+
+                salesHistory = [];
+                localStorage.setItem('pos_sales_history', JSON.stringify(salesHistory));
+                orderCounter = 1;
+                localStorage.setItem('pos_order_counter', '1');
+
+                updateReportStats();
+                renderCart();
+                renderOrdersList();
+                alert('日結帳成功！今日營收與品項分類總和數據已封存歸檔。');
+            }
+        }
+
+        function initMonthlyChart() {
+            const ctx = document.getElementById('monthlyChart').getContext('2d');
+            monthlyChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['1日', '2日', '3日', '4日', '5日', '6日', '7日', '8日', '9日', '10日 (今天)'],
+                    datasets: [{
+                        label: '每日營收 (NT$)',
+                        data: [12500, 14200, 11800, 16500, 18900, 21000, 19500, 15400, 17800, 8500],
+                        backgroundColor: '#166534',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        }
+
+        function openPrinterSettingsModal() {
+            document.getElementById('printer-settings-modal').classList.remove('hidden');
+        }
+
+        function closePrinterSettingsModal() {
+            document.getElementById('printer-settings-modal').classList.add('hidden');
+        }
+
+        function downloadCSV(csvContent, filename) {
+            const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', filename);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function exportSalesDetailCSV() {
+            if (salesHistory.length === 0) {
+                alert('目前沒有今日銷售紀錄可供匯出！');
+                return;
+            }
+
+            let csv = "單號,結帳時間,用餐類型,桌號/備註,品項明細,金額(NT$)\n";
+
+            salesHistory.forEach(order => {
+                const itemSummary = order.items.map(i => `${i.name} ${i.spice !== '無' && i.spice !== '无' ? '['+i.spice+']' : ''} x${i.qty}`).join('; ');
+                const cleanNote = (order.note || '').replace(/"/g, '""');
+                csv += `"#${String(order.orderNo).padStart(3, '0')}",${order.timeStr},${order.type === 'dinein' ? '內用' : '外帶'},"${cleanNote}","${itemSummary}",${order.totalAmount}\n`;
+            });
+
+            const todayStr = new Date().toISOString().split('T')[0];
+            downloadCSV(csv, `銷售交易明細報表_${todayStr}.csv`);
+        }
+
+        function exportItemsCSV() {
+            if (salesHistory.length === 0) {
+                alert('目前沒有銷售品項紀錄可供匯出！');
+                return;
+            }
+
+            const itemMap = {};
+            salesHistory.forEach(order => {
+                order.items.forEach(i => {
+                    if (!itemMap[i.name]) itemMap[i.name] = { qty: 0, total: 0 };
+                    itemMap[i.name].qty += i.qty;
+                    itemMap[i.name].total += (i.price * i.qty);
+                });
+            });
+
+            let csv = "品項名稱,總銷售數量,銷售總金額(NT$)\n";
+            Object.entries(itemMap).forEach(([name, stat]) => {
+                csv += `"${name}",${stat.qty},${stat.total}\n`;
+            });
+
+            const todayStr = new Date().toISOString().split('T')[0];
+            downloadCSV(csv, `品項銷售統計報表_${todayStr}.csv`);
+        }
+
+        function exportSettlementHistoryCSV() {
+            if (settlementHistory.length === 0) {
+                alert('目前尚無歷史日結紀錄！');
+                return;
+            }
+
+            let csv = "日結日期時間,總訂單數,當日營業額(NT$),操作人員\n";
+            settlementHistory.forEach(s => {
+                csv += `"${s.timeStr}",${s.totalOrders},${s.totalSales},"${s.operator}"\n`;
+            });
+
+            const todayStr = new Date().toISOString().split('T')[0];
+            downloadCSV(csv, `歷史日結紀錄報表_${todayStr}.csv`);
+        }
+
+        function exportFullBackupJSON() {
+            const backupData = {
+                version: "1.2",
+                exportTime: new Date().toISOString(),
+                menuItems: menuItems,
+                salesHistory: salesHistory,
+                settlementHistory: settlementHistory,
+                orderCounter: orderCounter
+            };
+
+            const jsonStr = JSON.stringify(backupData, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const todayStr = new Date().toISOString().split('T')[0];
+            link.href = url;
+            link.setAttribute('download', `POS系統完整備份_${todayStr}.json`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function importFullBackupJSON(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (!data.menuItems || !Array.isArray(data.menuItems)) {
+                        throw new Error("無效的 POS 備份檔案格式");
+                    }
+
+                    if (confirm("還原備份將會覆蓋當前平板上的所有菜單與營收資料，確定要繼續嗎？")) {
+                        menuItems = data.menuItems;
+                        salesHistory = data.salesHistory || [];
+                        settlementHistory = data.settlementHistory || [];
+                        orderCounter = data.orderCounter || 1;
+
+                        localStorage.setItem('pos_menu_items', JSON.stringify(menuItems));
+                        localStorage.setItem('pos_sales_history', JSON.stringify(salesHistory));
+                        localStorage.setItem('pos_settlement_history', JSON.stringify(settlementHistory));
+                        localStorage.setItem('pos_order_counter', orderCounter.toString());
+
+                        renderMenuItems();
+                        renderManageItems();
+                        updateReportStats();
+                        renderOrdersList();
+                        renderCart();
+
+                        alert("系統備份資料已成功還原！");
+                    }
+                } catch (err) {
+                    alert("備份檔讀取失敗：" + err.message);
+                }
+                event.target.value = '';
+            };
+            reader.readAsText(file);
+        }
+    </script>
+</body>
+</html>
