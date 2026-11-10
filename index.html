@@ -100,6 +100,11 @@
                     <input type="text" id="order-note" placeholder="桌號 / 顧客備註 (例: 桌號A2)" class="w-full px-3 py-1.5 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-800 text-sm">
                 </div>
 
+                <div id="editing-banner" class="hidden px-3 py-1.5 bg-amber-100 border-b border-amber-200 text-amber-800 text-xs flex justify-between items-center font-semibold">
+                    <span><i class="fa-solid fa-pen-to-square mr-1"></i> 正修改訂單 <b id="editing-order-no">#000</b></span>
+                    <button onclick="cancelEditingOrder()" class="text-rose-600 hover:underline">取消修改</button>
+                </div>
+
                 <div class="flex-1 overflow-y-auto p-3 space-y-2 divide-y divide-slate-100" id="cart-items-container"></div>
 
                 <div class="p-4 bg-slate-50 border-t border-slate-200 space-y-3">
@@ -394,7 +399,7 @@
 
         let menuItems = JSON.parse(localStorage.getItem('pos_menu_items')) || DEFAULT_MENU;
         let cart = [];
-        let customerCart = []; // 顧客手機專屬購物車
+        let customerCart = [];
         let orderType = 'dinein';
         let currentCategory = 'all';
         let orderCounter = parseInt(localStorage.getItem('pos_order_counter')) || 1;
@@ -407,7 +412,6 @@
         let selectedModalQty = 1;
         let isCustomerMode = false;
 
-        // 使用免費公開雲端廣播頻道（實現跨裝置手機點餐即時連線）
         const pubnub = new PubNub({
             publishKey: 'pub-c-demo-publish-key',
             subscribeKey: 'sub-c-demo-subscribe-key',
@@ -431,14 +435,12 @@
             renderManageItems();
             updateReportStats();
 
-            // 櫃台平板訂閱雲端頻道，接收手機外帶單
             pubnub.subscribe({ channels: [channelName] });
             pubnub.addListener({
                 message: function(event) {
                     if (event.message && event.message.type === 'NEW_TAKEAWAY_ORDER') {
                         const newOrder = event.message.order;
                         
-                        // 賦予新單號並寫入櫃台銷售紀錄
                         newOrder.orderNo = orderCounter;
                         salesHistory.push(newOrder);
                         localStorage.setItem('pos_sales_history', JSON.stringify(salesHistory));
@@ -516,7 +518,6 @@
             return cat ? cat.name : '';
         }
 
-        // 開啟選項彈窗 (選擇 麵/飯/米粉 與 辣度)
         function openOptionModal(itemId) {
             const item = menuItems.find(i => i.id === itemId);
             if(!item || !item.available) return;
@@ -649,19 +650,33 @@
             const total = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
             const now = new Date();
 
-            const orderRecord = { orderNo: orderCounter, timestamp: now.toISOString(), timeStr: now.toLocaleString('zh-TW', { hour12: false }), type: orderType, note: note, items: [...cart], totalAmount: total };
-            salesHistory.push(orderRecord);
-            localStorage.setItem('pos_sales_history', JSON.stringify(salesHistory));
-            showReceiptModal(orderRecord);
-            orderCounter++;
-            localStorage.setItem('pos_order_counter', orderCounter.toString());
+            if (editingOrderNo !== null) {
+                const targetIdx = salesHistory.findIndex(o => o.orderNo === editingOrderNo);
+                if (targetIdx !== -1) {
+                    salesHistory[targetIdx].type = orderType;
+                    salesHistory[targetIdx].note = note;
+                    salesHistory[targetIdx].items = [...cart];
+                    salesHistory[targetIdx].totalAmount = total;
+                    salesHistory[targetIdx].updatedTimeStr = now.toLocaleString('zh-TW', { hour12: false });
+                    localStorage.setItem('pos_sales_history', JSON.stringify(salesHistory));
+                    showReceiptModal(salesHistory[targetIdx]);
+                }
+                editingOrderNo = null;
+                document.getElementById('editing-banner').classList.add('hidden');
+            } else {
+                const orderRecord = { orderNo: orderCounter, timestamp: now.toISOString(), timeStr: now.toLocaleString('zh-TW', { hour12: false }), type: orderType, note: note, items: [...cart], totalAmount: total };
+                salesHistory.push(orderRecord);
+                localStorage.setItem('pos_sales_history', JSON.stringify(salesHistory));
+                showReceiptModal(orderRecord);
+                orderCounter++;
+                localStorage.setItem('pos_order_counter', orderCounter.toString());
+            }
             cart = [];
             document.getElementById('order-note').value = '';
             renderCart();
             renderOrdersList();
         }
 
-        // 顧客手機端點餐畫面
         function renderCustomerMobileMenu() {
             const list = document.getElementById('customer-menu-list');
             list.innerHTML = menuItems.filter(i => i.available).map(item => `
@@ -677,14 +692,12 @@
                 </div>
             `).join('');
 
-            // 渲染手機購物車清單
             const totalQty = customerCart.reduce((sum, i) => sum + i.qty, 0);
             const totalPrice = customerCart.reduce((sum, i) => sum + (i.price * i.qty), 0);
             document.getElementById('customer-cart-count').innerText = totalQty;
             document.getElementById('customer-cart-total').innerText = `NT$ ${totalPrice}`;
         }
 
-        // 手機點擊送出外帶訂單 (透過雲端廣播傳送給櫃台)
         function submitCustomerOrder() {
             if(customerCart.length === 0) { alert('請先選購餐點！'); return; }
 
@@ -699,7 +712,6 @@
                 totalAmount: total
             };
 
-            // 發送雲端訊號給店內平板
             pubnub.publish({
                 channel: channelName,
                 message: {
@@ -745,15 +757,47 @@
                     <td class="p-3 max-w-xs">${order.items.map(i => `<span class="inline-block bg-slate-100 rounded px-1.5 py-0.5 text-xs font-semibold mr-1 mb-1">${i.name} [${i.spice}] x${i.qty}</span>`).join('')}</td>
                     <td class="p-3 text-right font-black text-rose-600">NT$ ${order.totalAmount}</td>
                     <td class="p-3 text-center flex gap-1 justify-center">
+                        <button onclick="startEditOrder(${order.orderNo})" class="px-2.5 py-1 bg-amber-600 text-white rounded text-xs font-bold"><i class="fa-solid fa-pen"></i> 修改</button>
                         <button onclick="reprintOrderReceipt(${order.orderNo})" class="px-2.5 py-1 bg-slate-700 text-white rounded text-xs font-bold"><i class="fa-solid fa-print"></i> 補印</button>
+                        <button onclick="deleteOrderRecord(${order.orderNo})" class="px-2.5 py-1 bg-rose-600 text-white rounded text-xs font-bold"><i class="fa-solid fa-trash"></i> 作廢</button>
                     </td>
                 </tr>
             `).join('');
         }
 
+        function startEditOrder(orderNo) {
+            const order = salesHistory.find(o => o.orderNo === orderNo);
+            if (!order) return;
+            editingOrderNo = order.orderNo;
+            cart = JSON.parse(JSON.stringify(order.items));
+            setOrderType(order.type);
+            document.getElementById('order-note').value = order.note || '';
+            document.getElementById('editing-banner').classList.remove('hidden');
+            document.getElementById('editing-order-no').innerText = `#${String(order.orderNo).padStart(3, '0')}`;
+            switchTab('pos');
+            renderCart();
+        }
+
+        function cancelEditingOrder() {
+            editingOrderNo = null;
+            cart = [];
+            document.getElementById('order-note').value = '';
+            document.getElementById('editing-banner').classList.add('hidden');
+            renderCart();
+        }
+
         function reprintOrderReceipt(orderNo) {
             const order = salesHistory.find(o => o.orderNo === orderNo);
             if (order) showReceiptModal(order);
+        }
+
+        function deleteOrderRecord(orderNo) {
+            if (confirm(`確定要作廢訂單 #${String(orderNo).padStart(3, '0')} 嗎？`)) {
+                salesHistory = salesHistory.filter(o => o.orderNo !== orderNo);
+                localStorage.setItem('pos_sales_history', JSON.stringify(salesHistory));
+                renderOrdersList();
+                updateReportStats();
+            }
         }
 
         function showReceiptModal(record) {
