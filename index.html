@@ -32,6 +32,11 @@
                             500: '#ef4444',
                             600: '#dc2626',
                             700: '#b91c1c'
+                        },
+                        linepay: {
+                            500: '#00c300',
+                            600: '#00b300',
+                            700: '#009900'
                         }
                     }
                 }
@@ -77,7 +82,7 @@
                             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse-fast"></span> 雲端連線中
                         </span>
                     </h1>
-                    <p class="text-[11px] text-emerald-200 hidden sm:block">智慧雲端 QR 外帶 / 出單機 / 報表結帳</p>
+                    <p class="text-[11px] text-emerald-200 hidden sm:block">智慧雲端 QR 外帶 / 出單機 / LINE Pay 結帳與分帳報表</p>
                 </div>
             </div>
 
@@ -96,7 +101,7 @@
                     <i class="fa-solid fa-pen-to-square"></i> 菜單管理
                 </button>
                 <button onclick="switchTab('reports')" id="nav-reports" class="px-3 py-1.5 rounded-lg font-bold text-xs md:text-sm transition flex items-center gap-1.5 bg-brand-800 hover:bg-emerald-700 text-emerald-100 whitespace-nowrap">
-                    <i class="fa-solid fa-chart-line"></i> 報表
+                    <i class="fa-solid fa-chart-line"></i> 報表/對帳
                 </button>
                 <button onclick="openPrinterSettingsModal()" class="p-2 rounded-lg bg-brand-800 hover:bg-emerald-700 text-emerald-100 text-sm flex-shrink-0" title="出單機設定">
                     <i class="fa-solid fa-print"></i>
@@ -152,8 +157,29 @@
                     <!-- Cart items rendered by JS -->
                 </div>
 
-                <!-- Cart Footer Summary & Checkout -->
-                <div class="p-3 bg-slate-50 border-t border-slate-200 space-y-2">
+                <!-- Cart Footer Summary & Checkout Options -->
+                <div class="p-3 bg-slate-50 border-t border-slate-200 space-y-2.5">
+                    <!-- Payment Method Selection Panel -->
+                    <div class="space-y-1.5 bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
+                        <label class="block text-[11px] font-bold text-slate-600 uppercase tracking-wider">選擇結帳支付方式</label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" id="pay-cash-btn" onclick="setPaymentMethod('cash')" class="py-1.5 px-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 border-2 border-brand-800 bg-emerald-50 text-brand-900 shadow-sm transition">
+                                <i class="fa-solid fa-money-bill-wave text-emerald-600"></i> 現金結帳
+                            </button>
+                            <button type="button" id="pay-linepay-btn" onclick="setPaymentMethod('linepay')" class="py-1.5 px-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 border-2 border-slate-200 text-slate-600 transition">
+                                <i class="fa-comment text-emerald-500 font-black"></i> LINE Pay
+                            </button>
+                        </div>
+                        <!-- LINE Pay Confirmation Checkbox (Only Visible when LINE Pay is selected) -->
+                        <div id="linepay-status-option" class="hidden pt-1 border-t border-slate-100 flex items-center justify-between text-xs">
+                            <label for="linepay-unconfirmed-chk" class="text-amber-800 font-bold flex items-center gap-1 cursor-pointer">
+                                <input type="checkbox" id="linepay-unconfirmed-chk" checked class="w-3.5 h-3.5 text-amber-600 rounded">
+                                標記為「待確認付款」
+                            </label>
+                            <span class="text-[10px] text-slate-400">方便下班核對</span>
+                        </div>
+                    </div>
+
                     <div class="space-y-1 text-xs md:text-sm">
                         <div class="flex justify-between text-slate-500">
                             <span>小計數量</span>
@@ -180,13 +206,14 @@
         <!-- ORDERS TAB -->
         <section id="tab-orders" class="flex-1 bg-slate-50 p-4 md:p-6 overflow-y-auto hidden">
             <div class="max-w-6xl mx-auto space-y-4">
-                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex justify-between items-center">
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                     <div>
-                        <h2 class="text-lg md:text-xl font-bold text-slate-800">已完成訂單列表與修改</h2>
-                        <p class="text-xs text-slate-500">檢視今日已有單據，支援補點、退項、補印或作廢廢單。</p>
+                        <h2 class="text-lg md:text-xl font-bold text-slate-800">已完成訂單列表與對帳標籤</h2>
+                        <p class="text-xs text-slate-500">點擊 LINE Pay 標籤可隨時切換「待確認 / 已確認」，下班快速對帳。</p>
                     </div>
-                    <div class="text-xs md:text-sm font-bold text-slate-600">
-                        共 <span id="orders-count-badge" class="text-emerald-700 font-black text-base md:text-lg">0</span> 筆訂單
+                    <div class="flex items-center gap-3 text-xs md:text-sm font-bold text-slate-600 bg-slate-50 px-3 py-2 rounded-lg border">
+                        <div>共 <span id="orders-count-badge" class="text-emerald-700 font-black text-base md:text-lg">0</span> 筆</div>
+                        <div class="border-l border-slate-300 pl-3 text-amber-700">待確認 LINE Pay: <span id="orders-pending-linepay-count" class="font-black text-base">0</span> 筆</div>
                     </div>
                 </div>
 
@@ -198,6 +225,7 @@
                                     <th class="p-3">單號</th>
                                     <th class="p-3">時間</th>
                                     <th class="p-3">類型/備註</th>
+                                    <th class="p-3">付款方式 & 狀態標籤</th>
                                     <th class="p-3">訂購品項內容</th>
                                     <th class="p-3 text-right">金額</th>
                                     <th class="p-3 text-center">操作動作</th>
@@ -233,23 +261,23 @@
             </div>
         </section>
 
-        <!-- REPORTS TAB -->
+        <!-- REPORTS TAB (WITH LINE PAY SEPARATION & MONTHLY DAILY REVENUE TREND) -->
         <section id="tab-reports" class="flex-1 bg-slate-50 p-4 md:p-6 overflow-y-auto hidden">
             <div class="max-w-6xl mx-auto space-y-4">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200 gap-4">
                     <div>
-                        <h2 class="text-lg md:text-xl font-bold text-slate-800">營運與結帳報表</h2>
-                        <p class="text-xs text-slate-500">檢視即時銷售數據、匯出 Excel CSV、備份系統與執行日結帳。</p>
+                        <h2 class="text-lg md:text-xl font-bold text-slate-800">營運、結帳與分帳對帳報表</h2>
+                        <p class="text-xs text-slate-500">現金與 LINE Pay 自動拆算對帳，支援匯出 CSV 與執行下班日結帳。</p>
                     </div>
                     <div class="flex flex-wrap gap-2">
                         <button onclick="exportSalesDetailCSV()" class="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-bold text-xs shadow flex items-center gap-1">
-                            <i class="fa-solid fa-file-excel"></i> 匯出明細 CSV
+                            <i class="fa-solid fa-file-excel"></i> 匯出交易對帳 CSV
                         </button>
                         <button onclick="exportItemsCSV()" class="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-lg font-bold text-xs shadow flex items-center gap-1">
                             <i class="fa-solid fa-file-csv"></i> 匯出品項統計
                         </button>
                         <button onclick="exportFullBackupJSON()" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg font-bold text-xs shadow flex items-center gap-1">
-                            <i class="fa-solid fa-download"></i> 完整系統備份
+                            <i class="fa-solid fa-download"></i> 系統備份
                         </button>
                         <button onclick="document.getElementById('restore-json-input').click()" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-bold text-xs shadow flex items-center gap-1">
                             <i class="fa-solid fa-upload"></i> 還原備份
@@ -262,16 +290,45 @@
                     </div>
                 </div>
 
-                <!-- KPI Summary Cards -->
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                    <div class="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 flex items-center gap-3">
+                <!-- KPI Summary Cards (SEPARATING CASH & LINE PAY) -->
+                <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                    <!-- Total Sales -->
+                    <div class="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 flex items-center gap-3 col-span-2 sm:col-span-1">
                         <div class="p-2.5 bg-emerald-100 text-emerald-800 rounded-lg text-lg"><i class="fa-solid fa-dollar-sign"></i></div>
                         <div>
-                            <div class="text-[11px] text-slate-500 font-medium">今日營業額</div>
+                            <div class="text-[11px] text-slate-500 font-medium">今日總營業額</div>
                             <div class="text-lg md:text-xl font-black text-slate-800" id="report-today-sales">NT$ 0</div>
                         </div>
                     </div>
 
+                    <!-- Cash Total -->
+                    <div class="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 flex items-center gap-3">
+                        <div class="p-2.5 bg-amber-100 text-amber-800 rounded-lg text-lg"><i class="fa-solid fa-money-bill-wave"></i></div>
+                        <div>
+                            <div class="text-[11px] text-slate-500 font-medium">實收現金金額</div>
+                            <div class="text-lg md:text-xl font-black text-amber-700" id="report-today-cash">NT$ 0</div>
+                        </div>
+                    </div>
+
+                    <!-- LINE Pay Total -->
+                    <div class="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 flex items-center gap-3">
+                        <div class="p-2.5 bg-emerald-50 text-emerald-600 rounded-lg text-lg"><i class="fa-comment font-black"></i></div>
+                        <div>
+                            <div class="text-[11px] text-slate-500 font-medium">LINE Pay 總額</div>
+                            <div class="text-lg md:text-xl font-black text-emerald-600" id="report-today-linepay">NT$ 0</div>
+                        </div>
+                    </div>
+
+                    <!-- LINE Pay Pending -->
+                    <div class="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 flex items-center gap-3">
+                        <div class="p-2.5 bg-amber-50 text-amber-600 rounded-lg text-lg"><i class="fa-solid fa-clock"></i></div>
+                        <div>
+                            <div class="text-[11px] text-slate-500 font-medium">LINE Pay 待確認</div>
+                            <div class="text-lg md:text-xl font-black text-amber-600" id="report-today-linepay-pending">NT$ 0</div>
+                        </div>
+                    </div>
+
+                    <!-- Orders Count -->
                     <div class="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 flex items-center gap-3">
                         <div class="p-2.5 bg-blue-100 text-blue-800 rounded-lg text-lg"><i class="fa-solid fa-receipt"></i></div>
                         <div>
@@ -279,30 +336,39 @@
                             <div class="text-lg md:text-xl font-black text-slate-800" id="report-today-orders">0 單</div>
                         </div>
                     </div>
+                </div>
 
-                    <div class="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 flex items-center gap-3">
-                        <div class="p-2.5 bg-amber-100 text-amber-800 rounded-lg text-lg"><i class="fa-solid fa-chart-pie"></i></div>
-                        <div>
-                            <div class="text-[11px] text-slate-500 font-medium">平均單筆消費</div>
-                            <div class="text-lg md:text-xl font-black text-slate-800" id="report-avg-order">NT$ 0</div>
+                <!-- MONTHLY DAILY REVENUE TREND CHART (月結帳視角) -->
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
+                        <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                            <i class="fa-solid fa-chart-line text-emerald-700"></i> 本月每日營收趨勢 (月結帳視角)
+                        </h3>
+                        <div class="text-xs text-slate-500 font-medium" id="monthly-trend-title">
+                            -- 月度對帳
                         </div>
                     </div>
-
-                    <div class="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 flex items-center gap-3">
-                        <div class="p-2.5 bg-purple-100 text-purple-800 rounded-lg text-lg"><i class="fa-solid fa-fire"></i></div>
-                        <div>
-                            <div class="text-[11px] text-slate-500 font-medium">熱銷排行榜首</div>
-                            <div class="text-sm font-bold text-slate-800 truncate max-w-[120px]" id="report-top-item">--</div>
-                        </div>
+                    <div class="h-64 relative w-full">
+                        <canvas id="monthlyTrendChart"></canvas>
                     </div>
                 </div>
 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-col">
+                        <h3 class="font-bold text-slate-800 text-sm mb-3 flex items-center justify-between">
+                            <span class="flex items-center gap-2"><i class="fa-solid fa-chart-pie text-emerald-700"></i> 支付方式結構比較 (下班核對)</span>
+                            <span class="text-xs text-slate-400">現金 vs LINE Pay</span>
+                        </h3>
+                        <div class="h-56 flex items-center justify-center">
+                            <canvas id="paymentPieChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
                         <h3 class="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
                             <i class="fa-solid fa-list-ol text-emerald-700"></i> 今日品項銷售統計
                         </h3>
-                        <div class="flex-1 overflow-y-auto max-h-64 border rounded-lg border-slate-100">
+                        <div class="flex-1 overflow-y-auto max-h-56 border rounded-lg border-slate-100">
                             <table class="w-full text-xs md:text-sm text-left">
                                 <thead class="bg-slate-50 text-slate-600 font-semibold sticky top-0">
                                     <tr>
@@ -315,24 +381,15 @@
                             </table>
                         </div>
                     </div>
-
-                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-                        <h3 class="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
-                            <i class="fa-solid fa-chart-column text-emerald-700"></i> 本月每日營收趨勢
-                        </h3>
-                        <div class="h-60">
-                            <canvas id="monthlyChart"></canvas>
-                        </div>
-                    </div>
                 </div>
 
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
                     <div class="flex justify-between items-center mb-3">
                         <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
-                            <i class="fa-solid fa-clock-rotate-left text-slate-600"></i> 歷史日結紀錄 (點擊可查看品項明細)
+                            <i class="fa-solid fa-clock-rotate-left text-slate-600"></i> 歷史日結紀錄 (含現金/LINE Pay 拆算明細)
                         </h3>
                         <button onclick="exportSettlementHistoryCSV()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1 rounded flex items-center gap-1">
-                            <i class="fa-solid fa-file-csv"></i> 匯出歷史 CSV
+                            <i class="fa-solid fa-file-csv"></i> 匯出歷史日結 CSV
                         </button>
                     </div>
                     <div class="overflow-x-auto">
@@ -341,6 +398,8 @@
                                 <tr>
                                     <th class="p-2">結帳日期/時間</th>
                                     <th class="p-2 text-center">總單數</th>
+                                    <th class="p-2 text-right">現金營收</th>
+                                    <th class="p-2 text-right">LINE Pay 營收</th>
                                     <th class="p-2 text-right">總營業額</th>
                                     <th class="p-2 text-center">操作員</th>
                                     <th class="p-2 text-center">操作</th>
@@ -512,6 +571,7 @@
                     <p class="text-[10px] text-slate-500" id="receipt-time">2026/11/11 00:00</p>
                     <div class="text-sm font-bold mt-1" id="receipt-type-badge">【外帶】</div>
                     <div class="text-[10px] text-slate-600" id="receipt-order-no">單號：#001</div>
+                    <div class="text-xs font-bold mt-1 text-slate-700" id="receipt-payment-badge">支付方式：現金</div>
                 </div>
 
                 <div class="py-1 space-y-1 border-b border-slate-400" id="receipt-items-list"></div>
@@ -602,11 +662,18 @@
         <div class="bg-white rounded-xl max-w-sm w-full p-5 shadow-2xl space-y-3 max-h-[85vh] flex flex-col">
             <div class="flex justify-between items-center border-b pb-2">
                 <div>
-                    <h3 class="font-bold text-base text-slate-800">歷史日結詳細品項統計</h3>
+                    <h3 class="font-bold text-base text-slate-800">歷史日結對帳詳細統計</h3>
                     <p class="text-[10px] text-slate-500" id="settlement-detail-time">結帳時間: --</p>
                 </div>
                 <button onclick="closeSettlementDetailModal()" class="text-slate-400 hover:text-slate-600 text-lg"><i class="fa-solid fa-xmark"></i></button>
             </div>
+
+            <!-- Cash & LINE Pay Breakdown Banner inside Detail Modal -->
+            <div class="grid grid-cols-2 gap-2 bg-slate-100 p-2.5 rounded-lg text-xs font-bold border">
+                <div class="text-amber-800">現金實收: NT$ <span id="settlement-detail-cash">0</span></div>
+                <div class="text-emerald-700">LINE Pay: NT$ <span id="settlement-detail-linepay">0</span></div>
+            </div>
+
             <div class="flex-1 overflow-y-auto border rounded-lg">
                 <table class="w-full text-xs text-left">
                     <thead class="bg-slate-50 text-slate-600 font-semibold sticky top-0">
@@ -683,6 +750,7 @@
         let menuItems = JSON.parse(localStorage.getItem('pos_menu_items')) || DEFAULT_MENU;
         let cart = [];
         let orderType = 'dinein';
+        let currentPaymentMethod = 'cash'; // 'cash' or 'linepay'
         let currentCategory = 'all';
         let orderCounter = parseInt(localStorage.getItem('pos_order_counter')) || 1;
         let salesHistory = JSON.parse(localStorage.getItem('pos_sales_history')) || [];
@@ -701,6 +769,10 @@
         localStorage.setItem('pos_room_id', posRoomId);
         let activePeerConn = null; // for customer side
 
+        // Chart Instance
+        let paymentPieChartInstance = null;
+        let monthlyTrendChartInstance = null;
+
         // MODE DETERMINATION
         let isCustomerMode = false;
 
@@ -711,11 +783,8 @@
             
             if (hash.includes('takeout-order') || urlParams.get('mode') === 'customer') {
                 isCustomerMode = true;
-                // Extract Room ID from Hash if available
                 const match = hash.match(/room=([a-zA-Z0-9_]+)/);
-                if (match) {
-                    posRoomId = match[1];
-                }
+                if (match) posRoomId = match[1];
                 initCustomerPhoneView();
             } else {
                 initCounterPosView();
@@ -734,7 +803,8 @@
             renderCart();
             renderOrdersList();
             renderManageItems();
-            initMonthlyChart();
+            initPaymentPieChart();
+            initMonthlyTrendChart();
             updateReportStats();
 
             // Initialize PeerJS Server for POS Room
@@ -765,7 +835,6 @@
 
         // Handle Online QR Order from Customer Phone
         function handleIncomingCloudOrder(cloudOrder) {
-            // Play Audio Prompt
             playDingDong();
 
             const newOrderRecord = {
@@ -773,6 +842,8 @@
                 timestamp: new Date().toISOString(),
                 timeStr: new Date().toLocaleString('zh-TW', { hour12: false }),
                 type: 'takeout',
+                paymentMethod: 'cash', // Default cash for customer phone order, desk can change to linepay
+                linepayConfirmed: true,
                 note: `[雲端QR外帶] ${cloudOrder.customerNote || ''}`,
                 items: cloudOrder.items,
                 totalAmount: cloudOrder.totalAmount
@@ -787,7 +858,6 @@
             renderOrdersList();
             updateReportStats();
 
-            // Flash alert modal
             showReceiptModal(newOrderRecord);
             alert(`【收到新外帶雲端訂單！】\n單號：#${String(newOrderRecord.orderNo).padStart(3, '0')}\n金額：NT$ ${newOrderRecord.totalAmount}`);
         }
@@ -798,8 +868,8 @@
                 const osc = ctx.createOscillator();
                 const gain = ctx.createGain();
                 osc.type = 'sine';
-                osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-                osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15); // A5
+                osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+                osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15);
                 gain.gain.setValueAtTime(0.3, ctx.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
                 osc.connect(gain);
@@ -820,7 +890,6 @@
             renderCustomerPhoneItems();
             updateCustomerPhoneCartBar();
 
-            // Connect to POS Room via PeerJS
             peer = new Peer();
             peer.on('open', function(id) {
                 activePeerConn = peer.connect(posRoomId);
@@ -929,7 +998,6 @@
                 closeCustomerCartDrawer();
                 updateCustomerPhoneCartBar();
             } else {
-                // Fallback attempt to reconnect or alert
                 alert('【傳送成功】外帶訂單已為您送出！請至櫃台報餐。');
                 cart = [];
                 closeCustomerCartDrawer();
@@ -999,7 +1067,6 @@
             return cat ? cat.name.split('/')[0] : '';
         }
 
-        // Open Sub-Options & Spiciness Selector Modal
         function openOptionModal(itemId) {
             const item = menuItems.find(i => i.id === itemId);
             if(!item || !item.available) return;
@@ -1012,7 +1079,6 @@
             document.getElementById('modal-item-price').innerText = `NT$ ${item.price}`;
             document.getElementById('modal-item-qty').innerText = '1';
 
-            // Automatic Hide Spiciness for Soup & Rice Categories
             const spiceSection = document.getElementById('spice-container-section');
             if(item.category === 'soup' || item.category === 'rice') {
                 spiceSection.classList.add('hidden');
@@ -1025,7 +1091,6 @@
                 });
             }
 
-            // Sub-types (燴麵/燴飯/燴米粉)
             const subTypeSection = document.getElementById('sub-type-section');
             const subTypeContainer = document.getElementById('sub-type-options');
 
@@ -1097,14 +1162,28 @@
             }
 
             closeOptionModal();
-            if (isCustomerMode) {
-                updateCustomerPhoneCartBar();
+            if (isCustomerMode) updateCustomerPhoneCartBar();
+            else renderCart();
+        }
+
+        // PAYMENT METHOD SWITCHER LOGIC
+        function setPaymentMethod(method) {
+            currentPaymentMethod = method;
+            const cashBtn = document.getElementById('pay-cash-btn');
+            const linePayBtn = document.getElementById('pay-linepay-btn');
+            const statusOption = document.getElementById('linepay-status-option');
+
+            if (method === 'cash') {
+                cashBtn.className = "py-1.5 px-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 border-2 border-brand-800 bg-emerald-50 text-brand-900 shadow-sm transition";
+                linePayBtn.className = "py-1.5 px-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 border-2 border-slate-200 text-slate-600 transition";
+                statusOption.classList.add('hidden');
             } else {
-                renderCart();
+                linePayBtn.className = "py-1.5 px-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 border-2 border-emerald-600 bg-emerald-50 text-emerald-700 shadow-sm transition";
+                cashBtn.className = "py-1.5 px-2 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 border-2 border-slate-200 text-slate-600 transition";
+                statusOption.classList.remove('hidden');
             }
         }
 
-        // Render Counter Cart Panel
         function renderCart() {
             const container = document.getElementById('cart-items-container');
             const cartTitle = document.getElementById('cart-mode-title');
@@ -1185,6 +1264,7 @@
             editingOrderNo = null;
             cart = [];
             document.getElementById('order-note').value = '';
+            setPaymentMethod('cash');
             renderCart();
         }
 
@@ -1212,10 +1292,15 @@
             const total = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
             const now = new Date();
 
+            const isLinePay = currentPaymentMethod === 'linepay';
+            const isUnconfirmed = isLinePay && document.getElementById('linepay-unconfirmed-chk').checked;
+
             if (editingOrderNo !== null) {
                 const targetIdx = salesHistory.findIndex(o => o.orderNo === editingOrderNo);
                 if (targetIdx !== -1) {
                     salesHistory[targetIdx].type = orderType;
+                    salesHistory[targetIdx].paymentMethod = currentPaymentMethod;
+                    salesHistory[targetIdx].linepayConfirmed = !isUnconfirmed;
                     salesHistory[targetIdx].note = note;
                     salesHistory[targetIdx].items = [...cart];
                     salesHistory[targetIdx].totalAmount = total;
@@ -1232,6 +1317,8 @@
                     timestamp: now.toISOString(),
                     timeStr: now.toLocaleString('zh-TW', { hour12: false }),
                     type: orderType,
+                    paymentMethod: currentPaymentMethod,
+                    linepayConfirmed: !isUnconfirmed, // false means pending verification tag
                     note: note,
                     items: [...cart],
                     totalAmount: total
@@ -1247,17 +1334,21 @@
 
             cart = [];
             document.getElementById('order-note').value = '';
+            setPaymentMethod('cash'); // Reset to cash default
             renderCart();
             renderOrdersList();
         }
 
-        // ORDERS LIST & EDITING
+        // ORDERS LIST & EDITING & TOGGLE LINEPAY CONFIRMATION
         function renderOrdersList() {
             const container = document.getElementById('orders-list-rows');
             document.getElementById('orders-count-badge').innerText = salesHistory.length;
 
+            const pendingLinePayCount = salesHistory.filter(o => o.paymentMethod === 'linepay' && !o.linepayConfirmed).length;
+            document.getElementById('orders-pending-linepay-count').innerText = pendingLinePayCount;
+
             if (salesHistory.length === 0) {
-                container.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-400 font-medium">目前尚無已完成的點餐訂單紀錄</td></tr>`;
+                container.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400 font-medium">目前尚無已完成的點餐訂單紀錄</td></tr>`;
                 return;
             }
 
@@ -1265,6 +1356,24 @@
 
             container.innerHTML = reversedOrders.map(order => {
                 const itemsSummary = order.items.map(i => `<span class="inline-block bg-slate-100 rounded px-1.5 py-0.5 text-[11px] font-semibold mr-1 mb-1 text-slate-700">${i.name} ${i.spice !== '無' ? '['+i.spice+']' : ''} x${i.qty}</span>`).join('');
+
+                // Payment Method & LINE Pay Tag rendering
+                let payBadgeHtml = '';
+                if (order.paymentMethod === 'linepay') {
+                    if (!order.linepayConfirmed) {
+                        payBadgeHtml = `
+                            <button onclick="toggleLinePayConfirmation(${order.orderNo})" class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 border border-amber-300 text-amber-800 hover:bg-amber-200 transition flex items-center gap-1 shadow-sm" title="點擊可標記為已對帳確認">
+                                <i class="fa-solid fa-triangle-exclamation text-amber-600"></i> LINE Pay (待確認)
+                            </button>`;
+                    } else {
+                        payBadgeHtml = `
+                            <button onclick="toggleLinePayConfirmation(${order.orderNo})" class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 border border-emerald-300 text-emerald-800 hover:bg-emerald-200 transition flex items-center gap-1" title="點擊可重新標記為待確認">
+                                <i class="fa-solid fa-circle-check text-emerald-600"></i> LINE Pay (已確認)
+                            </button>`;
+                    }
+                } else {
+                    payBadgeHtml = `<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 border border-slate-300 text-slate-700"><i class="fa-solid fa-money-bill-wave text-emerald-600 mr-1"></i>現金</span>`;
+                }
 
                 return `
                     <tr class="hover:bg-slate-50 transition">
@@ -1279,6 +1388,7 @@
                             </span>
                             <div class="text-xs text-slate-600 font-bold mt-0.5">${order.note}</div>
                         </td>
+                        <td class="p-2.5">${payBadgeHtml}</td>
                         <td class="p-2.5 max-w-xs">${itemsSummary}</td>
                         <td class="p-2.5 text-right font-black text-rose-600 text-sm">NT$ ${order.totalAmount}</td>
                         <td class="p-2.5 text-center">
@@ -1299,6 +1409,17 @@
             }).join('');
         }
 
+        // Toggle LINE Pay status fast on list
+        function toggleLinePayConfirmation(orderNo) {
+            const order = salesHistory.find(o => o.orderNo === orderNo);
+            if (order && order.paymentMethod === 'linepay') {
+                order.linepayConfirmed = !order.linepayConfirmed;
+                localStorage.setItem('pos_sales_history', JSON.stringify(salesHistory));
+                renderOrdersList();
+                updateReportStats();
+            }
+        }
+
         function startEditOrder(orderNo) {
             const order = salesHistory.find(o => o.orderNo === orderNo);
             if (!order) return;
@@ -1306,6 +1427,12 @@
             editingOrderNo = order.orderNo;
             cart = JSON.parse(JSON.stringify(order.items));
             setOrderType(order.type);
+            setPaymentMethod(order.paymentMethod || 'cash');
+
+            if (order.paymentMethod === 'linepay') {
+                document.getElementById('linepay-unconfirmed-chk').checked = !order.linepayConfirmed;
+            }
+
             document.getElementById('order-note').value = order.note || '';
 
             switchTab('pos');
@@ -1336,6 +1463,7 @@
             document.getElementById('receipt-time').innerText = record.updatedTimeStr ? `${record.timeStr} (重印)` : record.timeStr;
             document.getElementById('receipt-type-badge').innerText = `【${record.type === 'dinein' ? '內用' : '外帶'}】 ${record.note}`;
             document.getElementById('receipt-order-no').innerText = `單號：#${String(record.orderNo).padStart(3, '0')}`;
+            document.getElementById('receipt-payment-badge').innerText = `支付方式：${record.paymentMethod === 'linepay' ? 'LINE Pay' : '現金'}`;
 
             const itemsContainer = document.getElementById('receipt-items-list');
             itemsContainer.innerHTML = record.items.map(item => `
@@ -1359,12 +1487,11 @@
             document.getElementById('receipt-modal').classList.add('hidden');
         }
 
-        // QR CODE MODAL LOGIC (Generates Real Full URL with Cloud Room Parameter)
+        // QR CODE MODAL LOGIC
         function openCustomerQrModal() {
             const qrContainer = document.getElementById('qrcode-container');
             qrContainer.innerHTML = '';
             
-            // Build full URL containing current domain/path + mode=customer + room id parameter
             const baseUrl = window.location.origin + window.location.pathname;
             const fullTargetUrl = `${baseUrl}?mode=customer#takeout-order?room=${posRoomId}`;
 
@@ -1467,7 +1594,7 @@
         }
 
         function resetMenuToDefault() {
-            if(confirm('確定要將菜單回復至最初圖片預設值嗎？')) {
+            if(confirm('確定要將菜單回復至最初預設值嗎？')) {
                 menuItems = [...DEFAULT_MENU];
                 localStorage.setItem('pos_menu_items', JSON.stringify(menuItems));
                 renderMenuItems();
@@ -1475,16 +1602,43 @@
             }
         }
 
-        // REPORTS & SETTLEMENT
+        // REPORTS & SETTLEMENT WITH LINE PAY SEPARATION
         function updateReportStats() {
-            const totalSales = salesHistory.reduce((sum, o) => sum + o.totalAmount, 0);
+            let totalSales = 0;
+            let cashSales = 0;
+            let linePaySales = 0;
+            let linePayPendingSales = 0;
+
+            salesHistory.forEach(o => {
+                totalSales += o.totalAmount;
+                if (o.paymentMethod === 'linepay') {
+                    linePaySales += o.totalAmount;
+                    if (!o.linepayConfirmed) {
+                        linePayPendingSales += o.totalAmount;
+                    }
+                } else {
+                    cashSales += o.totalAmount;
+                }
+            });
+
             const totalOrders = salesHistory.length;
-            const avgOrder = totalOrders > 0 ? Math.round(totalSales / totalOrders) : 0;
 
             document.getElementById('report-today-sales').innerText = `NT$ ${totalSales}`;
+            document.getElementById('report-today-cash').innerText = `NT$ ${cashSales}`;
+            document.getElementById('report-today-linepay').innerText = `NT$ ${linePaySales}`;
+            document.getElementById('report-today-linepay-pending').innerText = `NT$ ${linePayPendingSales}`;
             document.getElementById('report-today-orders').innerText = `${totalOrders} 單`;
-            document.getElementById('report-avg-order').innerText = `NT$ ${avgOrder}`;
 
+            // Update Chart Data
+            if (paymentPieChartInstance) {
+                paymentPieChartInstance.data.datasets[0].data = [cashSales, linePaySales];
+                paymentPieChartInstance.update();
+            }
+
+            // Update Monthly Daily Revenue Trend Chart
+            updateMonthlyTrendChart();
+
+            // Item Sales Breakdown
             const itemMap = {};
             salesHistory.forEach(order => {
                 order.items.forEach(i => {
@@ -1495,8 +1649,6 @@
             });
 
             const sortedItems = Object.entries(itemMap).sort((a,b) => b[1].qty - a[1].qty);
-            document.getElementById('report-top-item').innerText = sortedItems.length > 0 ? sortedItems[0][0] : '--';
-
             const breakdownContainer = document.getElementById('report-item-breakdown');
             if(sortedItems.length === 0) {
                 breakdownContainer.innerHTML = '<tr><td colspan="3" class="p-3 text-center text-slate-400">今日尚無銷售紀錄</td></tr>';
@@ -1510,9 +1662,10 @@
                 `).join('');
             }
 
+            // History Rows Table Render
             const historyContainer = document.getElementById('settlement-history-rows');
             if(settlementHistory.length === 0) {
-                historyContainer.innerHTML = '<tr><td colspan="5" class="p-3 text-center text-slate-400">尚無歷史日結紀錄</td></tr>';
+                historyContainer.innerHTML = '<tr><td colspan="7" class="p-3 text-center text-slate-400">尚無歷史日結紀錄</td></tr>';
             } else {
                 historyContainer.innerHTML = settlementHistory.map((s, index) => `
                     <tr class="hover:bg-slate-50 transition">
@@ -1520,7 +1673,9 @@
                             <span class="underline font-bold">${s.timeStr}</span>
                         </td>
                         <td class="p-2 text-center font-bold">${s.totalOrders} 單</td>
-                        <td class="p-2 text-right font-black text-emerald-800">NT$ ${s.totalSales}</td>
+                        <td class="p-2 text-right font-bold text-amber-700">NT$ ${s.cashSales || 0}</td>
+                        <td class="p-2 text-right font-bold text-emerald-600">NT$ ${s.linePaySales || 0}</td>
+                        <td class="p-2 text-right font-black text-slate-800">NT$ ${s.totalSales}</td>
                         <td class="p-2 text-center text-xs text-slate-500">${s.operator}</td>
                         <td class="p-2 text-center">
                             <button onclick="deleteSettlementRecord(${index})" class="px-2 py-0.5 bg-rose-600 text-white rounded text-[10px] font-bold">刪除</button>
@@ -1530,6 +1685,146 @@
             }
         }
 
+        function initPaymentPieChart() {
+            const ctx = document.getElementById('paymentPieChart').getContext('2d');
+            paymentPieChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['實收現金 (NT$)', 'LINE Pay (NT$)'],
+                    datasets: [{
+                        data: [0, 0],
+                        backgroundColor: ['#d97706', '#00c300'],
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    }
+                }
+            });
+        }
+
+        function initMonthlyTrendChart() {
+            const ctx = document.getElementById('monthlyTrendChart').getContext('2d');
+            monthlyTrendChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: '本月每日總營業額',
+                            data: [],
+                            borderColor: '#16a34a',
+                            backgroundColor: 'rgba(22, 163, 74, 0.1)',
+                            fill: true,
+                            tension: 0.3,
+                            borderWidth: 2,
+                            pointRadius: 3
+                        },
+                        {
+                            label: '現金營業額',
+                            data: [],
+                            borderColor: '#d97706',
+                            borderDash: [4, 4],
+                            fill: false,
+                            tension: 0.3,
+                            borderWidth: 1.5,
+                            pointRadius: 2
+                        },
+                        {
+                            label: 'LINE Pay 營業額',
+                            data: [],
+                            borderColor: '#00c300',
+                            borderDash: [2, 2],
+                            fill: false,
+                            tension: 0.3,
+                            borderWidth: 1.5,
+                            pointRadius: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) { return 'NT$ ' + value; }
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': NT$ ' + context.parsed.y;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateMonthlyTrendChart() {
+            if (!monthlyTrendChartInstance) return;
+
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = now.getMonth(); // 0-indexed
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            document.getElementById('monthly-trend-title').innerText = `${year} 年 ${month + 1} 月`;
+
+            const labels = [];
+            const totalData = new Array(daysInMonth).fill(0);
+            const cashData = new Array(daysInMonth).fill(0);
+            const linePayData = new Array(daysInMonth).fill(0);
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                labels.push(`${day}日`);
+            }
+
+            // 1. Process Settlement History for current month
+            settlementHistory.forEach(s => {
+                if (!s.timeStr) return;
+                const d = new Date(s.timeStr.replace(/-/g, '/'));
+                if (d.getFullYear() === year && d.getMonth() === month) {
+                    const dayIdx = d.getDate() - 1;
+                    if (dayIdx >= 0 && dayIdx < daysInMonth) {
+                        totalData[dayIdx] += (s.totalSales || 0);
+                        cashData[dayIdx] += (s.cashSales || 0);
+                        linePayData[dayIdx] += (s.linePaySales || 0);
+                    }
+                }
+            });
+
+            // 2. Include active un-settled sales for today
+            const todayDate = now.getDate();
+            const todayIdx = todayDate - 1;
+            salesHistory.forEach(o => {
+                const oDate = o.timestamp ? new Date(o.timestamp) : new Date(o.timeStr.replace(/-/g, '/'));
+                if (oDate.getFullYear() === year && oDate.getMonth() === month && oDate.getDate() === todayDate) {
+                    totalData[todayIdx] += o.totalAmount;
+                    if (o.paymentMethod === 'linepay') {
+                        linePayData[todayIdx] += o.totalAmount;
+                    } else {
+                        cashData[todayIdx] += o.totalAmount;
+                    }
+                }
+            });
+
+            monthlyTrendChartInstance.data.labels = labels;
+            monthlyTrendChartInstance.data.datasets[0].data = totalData;
+            monthlyTrendChartInstance.data.datasets[1].data = cashData;
+            monthlyTrendChartInstance.data.datasets[2].data = linePayData;
+            monthlyTrendChartInstance.update();
+        }
+
         function viewSettlementDetail(index) {
             const record = settlementHistory[index];
             if (!record) return;
@@ -1537,6 +1832,8 @@
             document.getElementById('settlement-detail-time').innerText = `結帳時間: ${record.timeStr}`;
             document.getElementById('settlement-detail-orders').innerText = record.totalOrders;
             document.getElementById('settlement-detail-sales').innerText = record.totalSales;
+            document.getElementById('settlement-detail-cash').innerText = record.cashSales || 0;
+            document.getElementById('settlement-detail-linepay').innerText = record.linePaySales || 0;
 
             const container = document.getElementById('settlement-detail-items');
             const items = record.itemBreakdown || [];
@@ -1574,8 +1871,24 @@
                 return;
             }
 
-            const totalSales = salesHistory.reduce((sum, o) => sum + o.totalAmount, 0);
-            if(confirm(`確定要執行【今日日結帳】嗎？\n\n總單數：${salesHistory.length} 單\n總營收：NT$ ${totalSales}`)) {
+            const unconfirmedLinePayCount = salesHistory.filter(o => o.paymentMethod === 'linepay' && !o.linepayConfirmed).length;
+            if (unconfirmedLinePayCount > 0) {
+                if (!confirm(`⚠️ 注意：目前還有 ${unconfirmedLinePayCount} 筆 LINE Pay 訂單顯示為【待確認付款】！\n\n建議先在「訂單列表」確認對帳無誤後再日結。確定仍要繼續執行日結嗎？`)) {
+                    return;
+                }
+            }
+
+            let totalSales = 0;
+            let cashSales = 0;
+            let linePaySales = 0;
+
+            salesHistory.forEach(o => {
+                totalSales += o.totalAmount;
+                if (o.paymentMethod === 'linepay') linePaySales += o.totalAmount;
+                else cashSales += o.totalAmount;
+            });
+
+            if(confirm(`確定要執行【今日日結帳】嗎？\n\n總單數：${salesHistory.length} 單\n現金應收：NT$ ${cashSales}\nLINE Pay：NT$ ${linePaySales}\n總營收：NT$ ${totalSales}`)) {
                 const itemMap = {};
                 salesHistory.forEach(order => {
                     order.items.forEach(i => {
@@ -1592,6 +1905,8 @@
                 settlementHistory.unshift({
                     timeStr: new Date().toLocaleString('zh-TW', { hour12: false }),
                     totalOrders: salesHistory.length,
+                    cashSales: cashSales,
+                    linePaySales: linePaySales,
                     totalSales: totalSales,
                     operator: '櫃台管理員',
                     itemBreakdown: itemBreakdownArray
@@ -1606,30 +1921,8 @@
                 updateReportStats();
                 renderCart();
                 renderOrdersList();
-                alert('日結帳完成！數據已歸檔。');
+                alert('日結帳完成！現金與 LINE Pay 數據已獨立歸檔存檔。');
             }
-        }
-
-        function initMonthlyChart() {
-            const ctx = document.getElementById('monthlyChart').getContext('2d');
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: ['1日', '2日', '3日', '4日', '5日', '6日', '7日', '8日', '9日', '10日 (今天)'],
-                    datasets: [{
-                        label: '營收 (NT$)',
-                        data: [12500, 14200, 11800, 16500, 18900, 21000, 19500, 15400, 17800, 8500],
-                        backgroundColor: '#166534',
-                        borderRadius: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: { y: { beginAtZero: true } }
-                }
-            });
         }
 
         function openPrinterSettingsModal() { document.getElementById('printer-settings-modal').classList.remove('hidden'); }
@@ -1648,12 +1941,14 @@
 
         function exportSalesDetailCSV() {
             if (salesHistory.length === 0) return alert('無交易紀錄');
-            let csv = "單號,結帳時間,用餐類型,備註,品項明細,金額(NT$)\n";
+            let csv = "單號,結帳時間,用餐類型,支付方式,LINE Pay狀態,備註,品項明細,金額(NT$)\n";
             salesHistory.forEach(o => {
                 const itemSummary = o.items.map(i => `${i.name} x${i.qty}`).join('; ');
-                csv += `"#${String(o.orderNo).padStart(3, '0')}",${o.timeStr},${o.type === 'dinein' ? '內用' : '外帶'},"${o.note}","${itemSummary}",${o.totalAmount}\n`;
+                const payMethodStr = o.paymentMethod === 'linepay' ? 'LINE Pay' : '現金';
+                const statusStr = o.paymentMethod === 'linepay' ? (o.linepayConfirmed ? '已確認' : '待確認') : '已入帳';
+                csv += `"#${String(o.orderNo).padStart(3, '0')}",${o.timeStr},${o.type === 'dinein' ? '內用' : '外帶'},${payMethodStr},${statusStr},"${o.note}","${itemSummary}",${o.totalAmount}\n`;
             });
-            downloadCSV(csv, `銷售交易明細_${new Date().toISOString().split('T')[0]}.csv`);
+            downloadCSV(csv, `對帳銷售明細_${new Date().toISOString().split('T')[0]}.csv`);
         }
 
         function exportItemsCSV() {
@@ -1675,13 +1970,13 @@
 
         function exportSettlementHistoryCSV() {
             if (settlementHistory.length === 0) return alert('無歷史日結紀錄');
-            let csv = "日結日期,總單數,營業額,操作員\n";
-            settlementHistory.forEach(s => csv += `"${s.timeStr}",${s.totalOrders},${s.totalSales},"${s.operator}"\n`);
-            downloadCSV(csv, `歷史日結紀錄_${new Date().toISOString().split('T')[0]}.csv`);
+            let csv = "日結日期,總單數,現金金額(NT$),LINE Pay金額(NT$),總營業額(NT$),操作員\n";
+            settlementHistory.forEach(s => csv += `"${s.timeStr}",${s.totalOrders},${s.cashSales || 0},${s.linePaySales || 0},${s.totalSales},"${s.operator}"\n`);
+            downloadCSV(csv, `歷史日結紀錄對帳檔_${new Date().toISOString().split('T')[0]}.csv`);
         }
 
         function exportFullBackupJSON() {
-            const data = { version: "2.0", menuItems, salesHistory, settlementHistory, orderCounter };
+            const data = { version: "2.1", menuItems, salesHistory, settlementHistory, orderCounter };
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
